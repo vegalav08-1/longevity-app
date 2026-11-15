@@ -101,11 +101,17 @@ commentary.json = {
   as_of      "YYYY-MM-DD"  date of the newest observation the text accounts for
   written    "YYYY-MM-DD"
   author     string, the model that wrote it
-  summary    {headline, text}
+  summary    {headline, text, points?}
   domains    {[domainId]: {headline, text}}
   markers    {[markerId]: text}
 }
 ```
+
+`summary.points` is optional: 2 to 7 entries `{status, title, text, domain?}` that
+split the conclusion into rows a reader can scan. `status` is one of `out`,
+`watch`, `optimal`, `nodata` and only picks the badge; `title` has at most 5
+words; `text` at most 160 characters; `domain` is a domain id and makes the row
+open that domain. With points present, `summary.text` shrinks to one sentence.
 
 Rules for the text: conclusion first; about this person's values and their
 dynamics, not a textbook description of the marker (that is `MarkerDef.why`);
@@ -402,7 +408,8 @@ The today screen is a three-level disclosure built from `<details>` elements.
 Nothing below the first level is in the DOM until it is opened, and the set of
 open sections survives re-renders and a visit to a marker page.
 
-1. Lead block: the commentary summary (headline, text), the share of measured
+1. Lead block: the commentary summary (headline, one sentence, then its points
+   as rows with a status badge; a row with a domain opens it), the share of measured
    markers by status as one stacked bar with its tally, the author and date of
    the commentary.
 2. One card per domain, listed under its group from `goals.groups`, problems

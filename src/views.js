@@ -254,6 +254,32 @@ function fallbackHeadline(counts) {
   return "Отклонений в измеренных системах нет";
 }
 
+const POINT_STATUS = new Set(["out", "watch", "optimal", "nodata"]);
+
+// The summary split into scannable points: a status badge, a short bold title,
+// one line of text. A point that names a domain opens that domain.
+function leadPoints(model, points) {
+  if (!Array.isArray(points)) return null;
+  const known = new Set(model.domains.map((d) => d.id));
+  const rows = points
+    .filter((p) => p && typeof p.title === "string" && p.title.trim())
+    .map((p) => {
+      const status = POINT_STATUS.has(p.status) ? p.status : "nodata";
+      const target = typeof p.domain === "string" && known.has(p.domain) ? p.domain : null;
+      const inner = [
+        h("span", { class: "point-badge st-" + status }, statusIcon(status)),
+        h("span", { class: "point-body" },
+          h("span", { class: "point-title" }, p.title),
+          typeof p.text === "string" && p.text ? h("span", { class: "point-text" }, p.text) : null),
+        target ? h("span", { class: "point-go", "aria-hidden": "true" }) : null,
+      ];
+      return h("li", { class: "point" },
+        target ? h("a", { class: "point-row", href: link("domain/" + target) }, ...inner)
+               : h("div", { class: "point-row" }, ...inner));
+    });
+  return rows.length ? h("ul", { class: "points" }, ...rows) : null;
+}
+
 function lead(model) {
   const c = model.commentary;
   const counts = {};
@@ -268,6 +294,7 @@ function lead(model) {
       model.lastObservationDate ? "Данные на " + formatDateRu(model.lastObservationDate) : "Измерений пока нет"),
     h("h2", { class: "lead-headline" }, summary && summary.headline ? summary.headline : fallbackHeadline(counts)),
     summary && summary.text ? h("p", { class: "lead-text" }, summary.text) : null,
+    summary ? leadPoints(model, summary.points) : null,
     total ? h("div", { class: "coverage" },
       h("div", { class: "coverage-title" }, `Измерено ${total - markerCounts.nodata} из ${total} показателей`),
       shareBar(markerCounts),
