@@ -1,4 +1,4 @@
-// SVG builders: status marks, range bar, history chart.
+// SVG builders: status marks, system profile, share bar, range bar, history chart.
 import { formatValue, positionFor } from "./engine.js";
 import { h, svg, formatDateRu, valueText } from "./dom.js";
 
@@ -43,42 +43,157 @@ export function statusIcon(status) {
 
 const SEVERITY = { unrated: 0, optimal: 1, watch: 2, out: 3 };
 
-// ---- track -------------------------------------------------------------
+// ---- shared track ---------------------------------------------------------------
+// Every scale in the app uses the same geometry: the middle half of the track is
+// the reference range, the outer quarters are below and above it.
 
-function trackParts(y, th) {
-  const x1 = W * 0.25, x2 = W * 0.75;
+const X_LOW = W * 0.25, X_HIGH = W * 0.75;
+
+function track(y, height) {
+  const r = height / 2;
   return [
-    svg("rect", { class: "zone zone-low", x: 0, y, width: x1, height: th }),
-    svg("rect", { class: "zone zone-ref", x: x1, y, width: x2 - x1, height: th }),
-    svg("rect", { class: "zone zone-high", x: x2, y, width: W - x2, height: th }),
-    svg("line", { class: "tick", x1, x2: x1, y1: y - 2, y2: y + th + 2 }),
-    svg("line", { class: "tick", x1: x2, x2, y1: y - 2, y2: y + th + 2 }),
+    svg("rect", { class: "zone zone-edge", x: 0, y, width: W, height, rx: r }),
+    svg("rect", { class: "zone zone-ref", x: X_LOW, y, width: X_HIGH - X_LOW, height }),
+    svg("line", { class: "tick", x1: X_LOW, x2: X_LOW, y1: y - 2, y2: y + height + 2 }),
+    svg("line", { class: "tick", x1: X_HIGH, x2: X_HIGH, y1: y - 2, y2: y + height + 2 }),
   ];
 }
 
-// ---- range bar -------------------------------------------------------------
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const labelOf = (ms) => ms.def.short_name || ms.def.name;
+// Width of a label in viewBox units; an estimate is enough to keep labels apart.
+const textWidth = (text, size = 11.5) => text.length * size * 0.56;
 
-export function rangeBar(ms) {
+// ---- system profile -------------------------------------------------------------
+// All primary markers of one system on one normalised scale. Marks that would
+// overlap are stacked (a small beeswarm), and every mark outside its target is
+// labelled with its name and value, so the outliers are never anonymous.
+
+export function domainProfile(markerStates) {
+  const marks = markerStates.filter((m) => m && m.latest && m.position != null);
+  if (!marks.length) return null;
+
+  const flagged = marks.filter((m) => m.status === "out" || m.status === "watch")
+    .sort((a, b) => (SEVERITY[b.status] ?? 0) - (SEVERITY[a.status] ?? 0));
+  const rest = marks.filter((m) => !flagged.includes(m)).sort((a, b) => a.position - b.position);
+
+  // Stack: flagged marks take the axis first, the rest fill in around them.
+  const R = 4.5, GAP = 10.5, ROWS = [0, -1, 1, -2, 2];
+  const taken = ROWS.map(() => []);
+  const placed = [];
+  for (const m of [...flagged, ...rest]) {
+    const x = clamp(m.position * W, R + 2, W - R - 2);
+    let row = ROWS.findIndex((_, i) => taken[i].every((other) => Math.abs(other - x) >= GAP));
+    if (row < 0) row = 0;
+    taken[row].push(x);
+    placed.push({ m, x, row: ROWS[row] });
+  }
+  const depth = Math.max(0, ...placed.map((p) => Math.abs(p.row)));
+
+  // Labels for flagged marks, at most three, on up to two lines above the track.
+  const labels = [];
+  for (const p of placed.filter((q) => flagged.includes(q.m)).slice(0, 3)) {
+    const text = `${labelOf(p.m)} ${formatValue(p.m.latest.value, p.m.def.decimals ?? 0, p.m.latest.comparator)}`;
+    const width = textWidth(text);
+    const cx = clamp(p.x, width / 2 + 1, W - width / 2 - 1);
+    let line = 0;
+    while (labels.some((l) => l.line === line && Math.abs(l.cx - cx) < (l.width + width) / 2 + 6)) line += 1;
+    labels.push({ ...p, text, width, cx, line });
+  }
+  const labelLines = labels.length ? Math.max(...labels.map((l) => l.line)) + 1 : 0;
+
+  const STEP = 9, trackH = 18 + depth * STEP * 2;
+  const top = labelLines * 14 + (labelLines ? 6 : 2);
+  const cy = top + trackH / 2;
+  const H = top + trackH + 18;
+
+  const n = (status) => marks.filter((m) => m.status === status).length;
+  const root = svg("svg", {
+    class: "profile", viewBox: `0 0 ${W} ${H}`, role: "img", focusable: "false",
+    "aria-label": `Показателей на шкале: ${marks.length}. В норме: ${n("optimal")}, внимание: ${n("watch")}, вне нормы: ${n("out")}.`,
+  });
+  root.append(...track(top, trackH));
+
+  for (const l of labels) {
+    const ly = top - 6 - (labelLines - 1 - l.line) * 14;
+    const markY = cy + l.row * STEP;
+    root.append(
+      svg("line", { class: "leader", x1: l.x, x2: l.x, y1: ly + 3, y2: markY - R - 2 }),
+      svg("text", { class: "profile-label", x: l.cx, y: ly, "text-anchor": "middle" }, l.text));
+  }
+  // Quiet marks first, flagged on top.
+  for (const p of placed.slice().reverse()) root.append(mark(p.m.status, p.x, cy + p.row * STEP, R));
+
+  const caption = (x, text) => svg("text", { class: "profile-caption", x, y: H - 4, "text-anchor": "middle" }, text);
+  root.append(caption(X_LOW / 2, "ниже"), caption(W / 2, "в норме"), caption((X_HIGH + W) / 2, "выше"));
+  return root;
+}
+
+// ---- share bar ------------------------------------------------------------------
+// Part-to-whole of marker statuses: how much is measured and how much of it is fine.
+
+const SHARE_ORDER = ["out", "watch", "optimal", "unrated", "nodata"];
+
+export function shareBar(counts) {
+  const total = SHARE_ORDER.reduce((sum, s) => sum + (counts[s] || 0), 0);
+  if (!total) return null;
+  const H = 12, GAP = 2;
+  const parts = SHARE_ORDER.filter((s) => counts[s] > 0);
+  const usable = W - GAP * (parts.length - 1);
+  const root = svg("svg", { class: "share", viewBox: `0 0 ${W} ${H}`, "aria-hidden": "true", focusable: "false" });
+  let x = 0;
+  parts.forEach((s, i) => {
+    const width = Math.max(4, (counts[s] / total) * usable);
+    const end = i === parts.length - 1 ? W : x + width;
+    root.append(svg("rect", { class: "share-part share-" + s, x, y: 0, width: Math.max(1, end - x), height: H, rx: 3 }));
+    x = end + GAP;
+  });
+  return root;
+}
+
+// ---- priority -------------------------------------------------------------------
+
+export function priorityIcon(priority) {
+  const filled = priority === "high" ? 3 : priority === "medium" ? 2 : 1;
+  const root = svg("svg", { class: "priority-icon", viewBox: "0 0 16 14", width: 16, height: 14, "aria-hidden": "true", focusable: "false" });
+  [5, 9, 13].forEach((h0, i) => {
+    root.append(svg("rect", { class: i < filled ? "bar on" : "bar", x: i * 6, y: 14 - h0, width: 4, height: h0, rx: 1 }));
+  });
+  return root;
+}
+
+// ---- range bar ------------------------------------------------------------------
+// One marker on the shared scale. `compact` is the unlabelled version used in
+// lists, so a column of markers reads as a panel of aligned gauges.
+
+function optimalBand(ms, y, height) {
+  const ref = ms.ref, opt = ms.def.optimal;
+  if (!opt || (opt.low == null && opt.high == null)) return null;
+  const a = opt.low != null ? positionFor(opt.low, ref) : 0.25;
+  const b = opt.high != null ? positionFor(opt.high, ref) : 0.75;
+  const p1 = clamp(a ?? 0.25, 0.25, 0.75), p2 = clamp(b ?? 0.75, 0.25, 0.75);
+  const x1 = Math.min(p1, p2) * W, x2 = Math.max(p1, p2) * W;
+  if (x2 - x1 < 2) return null;
+  return svg("rect", { class: "zone zone-optimal", x: x1, y, width: x2 - x1, height });
+}
+
+export function rangeBar(ms, { compact = false } = {}) {
   const ref = ms.ref;
   if (!ref || (ref.low == null && ref.high == null)) {
-    return h("span", { class: "muted no-ref" }, "Нет референса");
+    return compact ? null : h("span", { class: "muted no-ref" }, "Нет референса");
   }
-  const H = 28, y = 3, th = 14, cy = y + th / 2;
+  const th = compact ? 8 : 14, pad = compact ? 4 : 4;
+  const H = th + pad * 2, y = pad, cy = y + th / 2;
+  const root = svg("svg", {
+    class: compact ? "strip compact" : "strip", viewBox: `0 0 ${W} ${H}`, "aria-hidden": "true", focusable: "false",
+  });
+  root.append(...track(y, th));
+  const band = optimalBand(ms, y, th);
+  if (band) root.insertBefore(band, root.children[2]); // above the zones, under the ticks
+  if (ms.latest && ms.position != null) root.append(mark(ms.status, ms.position * W, cy, compact ? 4 : 5.5));
+  if (compact) return root;
+
   const dec = ms.def.decimals ?? 0;
-  const root = svg("svg", { class: "strip", viewBox: `0 0 ${W} ${H}`, "aria-hidden": "true", focusable: "false" });
-  root.append(...trackParts(y, th));
-
-  const opt = ms.def.optimal;
-  if (opt && (opt.low != null || opt.high != null)) {
-    const clamp = (v) => Math.min(0.96, Math.max(0.04, v));
-    const a = opt.low != null ? positionFor(opt.low, ref) : 0.25;
-    const b = opt.high != null ? positionFor(opt.high, ref) : 0.75;
-    const p1 = clamp(a ?? 0.25), p2 = clamp(b ?? 0.75);
-    const x1 = Math.min(p1, p2) * W, x2 = Math.max(p1, p2) * W;
-    root.append(svg("rect", { class: "optimal-line", x: x1, y: y + th + 4, width: Math.max(2, x2 - x1), height: 3 }));
-  }
-  if (ms.latest && ms.position != null) root.append(mark(ms.status, ms.position * W, cy, 5));
-
   const labels = h("div", { class: "rb-labels", "aria-hidden": "true" });
   // With only an upper bound the left tick stands for zero (see positionFor).
   const lowLabel = ref.low != null ? formatValue(ref.low, dec) : ref.high != null ? "0" : null;

@@ -132,7 +132,7 @@ export function getSource() {
 
 /**
  * Reads the last bundle stored by a github-mode load. A cache written before
- * `commentary` was added is returned with `commentary: null`.
+ * `commentary` or `plan` was added is returned with `commentary: null` / `plan: null`.
  * @returns {object | null} Bundle or null
  */
 export function readCache() {
@@ -141,9 +141,11 @@ export function readCache() {
   try {
     const value = JSON.parse(raw);
     if (value && value.profile && value.goals && value.catalog && Array.isArray(value.observations)) {
-      // caches written before commentary existed have no such key
-      if (!("commentary" in value)) return { ...value, commentary: null };
-      return value;
+      // caches written before these files existed have no such keys
+      const filled = { ...value };
+      if (!("commentary" in filled)) filled.commentary = null;
+      if (!("plan" in filled)) filled.plan = null;
+      return filled;
     }
   } catch {
     // corrupted cache: ignore
@@ -187,7 +189,7 @@ function parseJson(text, label) {
   }
 }
 
-// commentary.json is optional: 404 means "no commentary"; auth and network failures propagate.
+// commentary.json and plan.json are optional: 404 means "absent"; auth and network failures propagate.
 function optional(promise) {
   return promise.catch((error) => {
     if (error instanceof DataError && error.missing) return null;
@@ -195,9 +197,9 @@ function optional(promise) {
   });
 }
 
-// Commentary is interpretation shown next to the numbers. A broken file must
-// not take the numbers down with it, so anything unusable counts as "none".
-function parseCommentary(text) {
+// Commentary and plan are layers on top of the numbers. A broken file must
+// not take the numbers down with it, so anything that is not a JSON object counts as "none".
+function parseOptionalObject(text) {
   if (text === null) return null;
   try {
     const value = JSON.parse(text);
@@ -230,18 +232,20 @@ async function loadGithub(source) {
     throw error;
   });
 
-  const [profileText, goalsText, markersText, listingText, commentaryText] = await Promise.all([
+  const [profileText, goalsText, markersText, listingText, commentaryText, planText] = await Promise.all([
     getFile("profile.json"),
     getFile("catalog/goals.json"),
     getFile("catalog/markers.json"),
     listing,
     optional(getFile("commentary.json")),
+    optional(getFile("plan.json")),
   ]);
 
   const profile = parseJson(profileText, "profile.json");
   const goals = parseJson(goalsText, "catalog/goals.json");
   const catalog = parseJson(markersText, "catalog/markers.json");
-  const commentary = parseCommentary(commentaryText);
+  const commentary = parseOptionalObject(commentaryText);
+  const plan = parseOptionalObject(planText);
 
   let names = [];
   if (listingText !== null) {
@@ -261,7 +265,7 @@ async function loadGithub(source) {
     observations.push(...parseObservations(text, `observations/${names[index]}`));
   });
 
-  const bundle = { profile, goals, catalog, observations, commentary, fetchedAt: new Date().toISOString() };
+  const bundle = { profile, goals, catalog, observations, commentary, plan, fetchedAt: new Date().toISOString() };
   writeCache(bundle);
   return bundle;
 }
@@ -285,18 +289,20 @@ async function loadLocal(source) {
     ),
   );
 
-  const [profileText, goalsText, markersText, commentaryText, found] = await Promise.all([
+  const [profileText, goalsText, markersText, commentaryText, planText, found] = await Promise.all([
     getFile("profile.json"),
     getFile("catalog/goals.json"),
     getFile("catalog/markers.json"),
     optional(getFile("commentary.json")),
+    optional(getFile("plan.json")),
     Promise.all(probes),
   ]);
 
   const profile = parseJson(profileText, "profile.json");
   const goals = parseJson(goalsText, "catalog/goals.json");
   const catalog = parseJson(markersText, "catalog/markers.json");
-  const commentary = parseCommentary(commentaryText);
+  const commentary = parseOptionalObject(commentaryText);
+  const plan = parseOptionalObject(planText);
 
   const observations = [];
   found
@@ -306,15 +312,16 @@ async function loadLocal(source) {
       observations.push(...parseObservations(text, `observations/${year}.jsonl`));
     });
 
-  return { profile, goals, catalog, observations, commentary, fetchedAt: new Date().toISOString() };
+  return { profile, goals, catalog, observations, commentary, plan, fetchedAt: new Date().toISOString() };
 }
 
 /**
- * Loads profile, catalog, all observations and the optional commentary.json (a 404 or an unusable
- * file gives `commentary: null`; auth and network failures are errors like for the other files). In github mode the result is also written to the cache;
- * local mode never touches settings or cache.
+ * Loads profile, catalog, all observations and the optional commentary.json and plan.json
+ * (a 404 or a file that is not a JSON object gives `commentary: null` / `plan: null`;
+ * auth and network failures are errors like for the other files). In github mode the
+ * result is also written to the cache; local mode never touches settings or cache.
  * @param {{mode: "local", base: string} | {mode: "github", repo: string, token: string}} source
- * @returns {Promise<{profile: object, goals: object, catalog: object, observations: object[], commentary: object|null, fetchedAt: string}>}
+ * @returns {Promise<{profile: object, goals: object, catalog: object, observations: object[], commentary: object|null, plan: object|null, fetchedAt: string}>}
  * @throws {DataError}
  */
 export async function loadBundle(source) {

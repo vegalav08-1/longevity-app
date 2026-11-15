@@ -39,6 +39,7 @@ catalog/goals.json            {version, mission, groups: [{id, name}], domains: 
 catalog/markers.json          {version, panels: {panelId: title}, markers: [MarkerDef]}
 observations/YYYY.jsonl       one Observation per line, file chosen by the year of `date`
 commentary.json              optional, see Commentary
+plan.json                    optional, see Plan targets
 raw/                          source documents, named YYYY-MM-DD_<lab>_<order>.<ext>
 tools/validate.mjs            `node tools/validate.mjs` must pass before every commit
 ```
@@ -48,6 +49,7 @@ tools/validate.mjs            `node tools/validate.mjs` must pass before every c
 ```
 id              string, snake_case, unique
 name            string, Russian display name
+short_name      optional short label for charts ("HOMA-IR")
 unit            canonical unit string, "" for unitless
 unit_label      Russian display unit
 domain          id from goals.json
@@ -109,6 +111,26 @@ no drug names, doses or treatment regimens; say what a result does not show.
 A marker with nothing specific to say has no entry. A comment is shown as
 outdated when the marker has an observation newer than `as_of`.
 
+### Plan targets
+
+Deadlines and priorities that cannot be derived from the data: when a marker
+that has never been measured should first be measured, and how much it matters.
+Written by a model when data is added, like the commentary.
+
+```
+plan.json = {
+  version,
+  written   "YYYY-MM-DD"
+  author    string
+  items     {[markerId]: {due: "YYYY-MM-DD", priority: "high" | "medium" | "low",
+                          effort?: string, reason?: string}}
+}
+```
+
+`effort` says what it takes ("Опросник, 5 минут"), `reason` says why now.
+A marker that already has data ignores `due` (its date comes from
+`recheck_months`) but keeps `priority`, `effort` and `reason`.
+
 ## Engine contract (`src/engine.js`)
 
 Pure ES module. No DOM, no network, no `Date.now()` (today is passed in).
@@ -121,7 +143,7 @@ evaluateStatus(value, comparator, ref, optimal) -> Status
 positionFor(value, ref) -> number | null             // strip coordinate, rules below
 addMonths(date, months) -> "YYYY-MM-DD"              // calendar months, day clamped to month end
 formulas[name](inputs, context) -> number             // inputs: values in MarkerDef.inputs order; context: {age}
-buildModel({profile, goals, catalog, observations, today}) -> Model
+buildModel({profile, goals, catalog, observations, plan, today}) -> Model   // plan: plan.json or null
 ```
 
 `Status` is one of `"optimal" | "watch" | "out" | "unrated"`; marker and domain
@@ -182,6 +204,7 @@ MarkerState = {
   ref,                          // effective ref of latest, or def.ref, or null
   position: number | null,      // 0..1 on the range bar, see below
   due: {state: "ok" | "soon" | "overdue" | "missing" | "none", date: string | null},
+  priority: "high" | "medium" | "low",
   related: string[],            // derived → its inputs; measured → derived markers using it
 }
 
@@ -192,7 +215,8 @@ DomainState = {
   counts: {optimal, watch, out, unrated, nodata},   // primary markers only
 }
 
-PlanItem = {key, title, state, date: string | null, markerIds: string[]}
+PlanItem = {key, title, state, date: string | null, markerIds: string[],
+            priority, urgency, daysLeft: number | null, effort: string | null, reason: string | null}
 ```
 
 Rules:
@@ -213,10 +237,17 @@ Rules:
   `recheck_months` null/absent → `"none"`. Otherwise due date = latest date plus
   `recheck_months` calendar months: before today → `"overdue"`, within 30 days →
   `"soon"`, else `"ok"`.
-- `plan`: markers grouped by `(panel, due.state)`; markers without a panel stand
-  alone. Group title = panel title, or the marker name. Group date = earliest due
-  date. State `"none"` is excluded. Order: overdue, soon, missing, ok; inside a
-  state by date ascending, then title.
+- A missing marker takes its due date from `plan.items[id].due` (else null).
+- `priority`: `plan.items[id].priority` when present; otherwise `"high"` for
+  status out, `"medium"` for watch and for a missing marker, `"low"` for the rest.
+- `plan`: markers grouped by `(panel, due.state, due.date)`; markers without a
+  panel stand alone. Group title = panel title, or the marker name. Priority = highest in the group, effort and reason = the
+  first non-empty among its markers in catalog order. State `"none"` is excluded.
+- `daysLeft` = whole days from today to the date (negative when past), null
+  without a date. `urgency`: `"overdue"` when daysLeft < 0, `"week"` for 0..7,
+  `"month"` for 8..30, `"later"` above 30, `"none"` without a date.
+- Plan order: date ascending with undated items last, then priority (high
+  first), then title.
 
 ## Data layer contract (`src/data.js`)
 
@@ -228,7 +259,8 @@ getSource() -> Source | null                // local mode if ?base= is valid, el
 Source = {mode: "local", base} | {mode: "github", repo, token}
 readCache() -> Bundle | null                // github mode only
 loadBundle(source) -> Promise<Bundle>       // fetches; in github mode also writes the cache
-Bundle = {profile, goals, catalog, observations: Observation[], commentary: object | null, fetchedAt: ISO string}
+Bundle = {profile, goals, catalog, observations: Observation[], commentary: object | null,
+          plan: object | null, fetchedAt: ISO string}
 class DataError extends Error { code: "auth" | "not_found" | "network" | "format" }
 ```
 
@@ -255,12 +287,16 @@ The today screen is a three-level disclosure built from `<details>` elements.
 Nothing below the first level is in the DOM until it is opened, and the set of
 open sections survives re-renders and a visit to a marker page.
 
-1. Lead block: the commentary summary (headline, text), a tally of domain
-   statuses, the author and date of the commentary.
+1. Lead block: the commentary summary (headline, text), the share of measured
+   markers by status as one stacked bar with its tally, the author and date of
+   the commentary.
 2. One card per domain, listed under its group from `goals.groups`, problems
-   first. Collapsed: name, status, the commentary headline, a tally of marker
-   statuses. The left edge of the card carries the status colour.
-3. Opened domain: its commentary, then markers in groups «Требуют внимания»,
+   first. Collapsed: name, status, the commentary headline, the system profile
+   and a tally of marker statuses. The profile puts every primary marker of the
+   system on one normalised scale, stacks marks that would overlap and labels
+   each mark outside its target with its short name and value. The left edge of the card carries the status colour.
+3. Opened domain: its commentary, then markers (each row carries a compact
+   range bar, so the list reads as a panel of aligned gauges) in groups «Требуют внимания»,
    «В норме», «Не измерено», and a nested «Дополнительные показатели».
 4. Opened marker: status and date, range bar, target, its commentary, `why`,
    the next recheck, and a link to the marker page.
@@ -268,7 +304,9 @@ open sections survives re-renders and a visit to a marker page.
 - Marker page: value, status, range bar with numeric bounds, `basis`,
   commentary, `why`, history chart, table of all points, related markers,
   next recheck date or `recheck_note`.
-- Plan: groups «Просрочено», «Скоро», «Не измерено», «По графику».
+- Plan: items in deadline order under «Просрочено», «На этой неделе», «В этом
+  месяце», «Позже», «Без срока». Each item shows its date, the time left, its
+  priority (three bars and a word), what it takes and why now.
 - Settings: repository, token, load, refresh, delete data from this device.
 
 Two surfaces, two meanings: white is data, the pale blue block is the model's

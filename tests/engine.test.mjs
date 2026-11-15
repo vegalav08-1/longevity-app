@@ -430,29 +430,72 @@ test("buildModel: plan grouping, exclusion and ordering", () => {
   const keys = plan.map((p) => p.key);
   assert.equal(new Set(keys).size, keys.length, "keys are unique");
 
+  // dated items by date, then undated ones by title; one item per (panel, state, date)
   assert.deepEqual(
-    plan.map((p) => [p.title, p.state]),
+    plan.map((p) => [p.title, p.state, p.date, p.markerIds]),
     [
-      ["Glucose panel", "overdue"],
-      ["Liver panel", "soon"],
-      ["Lipid panel", "missing"],
-      ["Mystery", "missing"],
-      ["Vitamin D", "missing"],
-      ["Liver panel", "ok"],
+      ["Glucose panel", "overdue", "2026-07-10", ["glucose"]],
+      ["Glucose panel", "overdue", "2026-08-10", ["insulin"]],
+      ["Liver panel", "soon", "2026-12-01", ["ast", "platelets"]],
+      ["Liver panel", "ok", "2026-12-20", ["alt"]],
+      ["Lipid panel", "missing", null, ["chol", "hdl"]],
+      ["Mystery", "missing", null, ["mystery"]],
+      ["Vitamin D", "missing", null, ["vitd"]],
     ],
   );
-  assert.equal(plan[0].date, "2026-07-10");
-  assert.deepEqual(plan[0].markerIds, ["glucose", "insulin"]);
-  assert.equal(plan[1].date, "2026-12-01");
-  assert.deepEqual(plan[1].markerIds, ["ast", "platelets"]);
-  assert.equal(plan[5].date, "2026-12-20");
-  assert.deepEqual(plan[5].markerIds, ["alt"]);
   // uric (none) and derived markers (none) never appear
   assert.ok(!plan.some((p) => p.markerIds.includes("uric")));
   assert.ok(!plan.some((p) => p.markerIds.includes("homa")));
-  // missing groups have no date and are ordered by title
-  assert.equal(plan[2].date, null);
-  assert.deepEqual(plan[2].markerIds, ["chol", "hdl"]);
+  // urgency and days left follow the date
+  assert.deepEqual(plan.map((p) => p.urgency), ["overdue", "overdue", "month", "later", "none", "none", "none"]);
+  assert.equal(plan[2].daysLeft, 16);
+  assert.equal(plan[4].daysLeft, null);
+});
+
+test("buildModel: plan targets give deadlines, priority, effort and reason", () => {
+  const targets = {
+    version: 1,
+    items: {
+      vitd: { due: "2026-11-18", priority: "high", effort: "Blood draw", reason: "Dose check" },
+      mystery: { due: "2026-11-10", priority: "low" },
+      chol: { due: "2026-11-18", priority: "medium" },
+      hdl: { due: "2027-03-01", priority: "low", effort: "Later draw" },
+      glucose: { due: "2000-01-01", priority: "low", effort: "Finger prick", reason: "Lever" },
+    },
+  };
+  const m = buildModel({
+    profile, goals, catalog, plan: targets, today: "2026-11-15",
+    observations: [obs("2026-10-01", "glucose", 9.9), obs("2026-10-01", "insulin", 30)],
+  });
+
+  // a never-measured marker takes its deadline from the target
+  assert.deepEqual(m.markers.vitd.due, { state: "missing", date: "2026-11-18" });
+  assert.equal(m.markers.vitd.priority, "high");
+  // a measured marker keeps its recheck date and takes only priority, effort and reason
+  assert.equal(m.markers.glucose.due.date, "2027-04-01");
+  assert.equal(m.markers.glucose.priority, "low");
+  // defaults without a target: out is high, a missing marker is medium
+  assert.equal(m.markers.insulin.status, "out");
+  assert.equal(m.markers.insulin.priority, "high");
+  assert.equal(m.markers.ast.priority, "medium");
+
+  const byKey = (ids) => m.plan.find((p) => p.markerIds.join() === ids.join());
+  const overdue = byKey(["mystery"]);
+  assert.deepEqual([overdue.urgency, overdue.daysLeft, overdue.priority], ["overdue", -5, "low"]);
+  const soonest = byKey(["vitd"]);
+  assert.deepEqual([soonest.urgency, soonest.daysLeft, soonest.effort, soonest.reason],
+    ["week", 3, "Blood draw", "Dose check"]);
+  // same panel, different deadlines: two items
+  assert.equal(byKey(["chol"]).date, "2026-11-18");
+  assert.equal(byKey(["hdl"]).date, "2027-03-01");
+  assert.equal(byKey(["hdl"]).effort, "Later draw");
+  // a group takes the highest priority of its markers
+  const glucosePanel = byKey(["glucose", "insulin"]);
+  assert.deepEqual([glucosePanel.priority, glucosePanel.effort, glucosePanel.reason], ["high", "Finger prick", "Lever"]);
+
+  // order: date, then priority, then title; undated last
+  assert.deepEqual(m.plan.slice(0, 3).map((p) => p.markerIds[0]), ["mystery", "vitd", "chol"]);
+  assert.equal(m.plan[m.plan.length - 1].date, null);
 });
 
 test("buildModel: plan sorts by date then title inside a state", () => {

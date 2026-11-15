@@ -242,7 +242,6 @@ export const formulas = {
 // Model
 // ---------------------------------------------------------------------------
 
-const STATE_ORDER = { overdue: 0, soon: 1, missing: 2, ok: 3 };
 const SOON_DAYS = 30;
 
 /**
@@ -287,14 +286,16 @@ function measuredPoint(observation, def) {
  * @param {object} def
  * @param {object | null} latest
  * @param {string} today
+ * @param {object | null} target plan.json entry for this marker, if any
  * @returns {{state: string, date: string | null}}
  */
-function computeDue(def, latest, today) {
+function computeDue(def, latest, today, target) {
   const hasInterval = isNum(def.recheck_months);
   if (def.kind === "derived" && !hasInterval) return { state: "none", date: null };
   if (!latest) {
     if (def.kind === "derived") return { state: "none", date: null };
-    return { state: "missing", date: null };
+    // Never measured: the deadline, if any, is set in plan.json.
+    return { state: "missing", date: target && typeof target.due === "string" ? target.due : null };
   }
   if (!hasInterval) return { state: "none", date: null };
   const date = addMonths(latest.date, def.recheck_months);
@@ -304,12 +305,45 @@ function computeDue(def, latest, today) {
   return { state: "ok", date };
 }
 
+const PRIORITIES = ["high", "medium", "low"];
+const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+
 /**
- * @param {{profile: object, goals: object, catalog: object, observations: object[], today: string}} input
+ * Priority of a marker: the plan target decides; without one it follows the status.
+ * @param {object | null} target
+ * @param {string} status
+ * @returns {"high" | "medium" | "low"}
+ */
+function computePriority(target, status) {
+  if (target && PRIORITIES.includes(target.priority)) return target.priority;
+  if (status === "out") return "high";
+  if (status === "watch" || status === "nodata") return "medium";
+  return "low";
+}
+
+/**
+ * Urgency bucket for a number of days left.
+ * @param {number | null} daysLeft
+ * @returns {"overdue" | "week" | "month" | "later" | "none"}
+ */
+function urgencyFor(daysLeft) {
+  if (daysLeft === null) return "none";
+  if (daysLeft < 0) return "overdue";
+  if (daysLeft <= 7) return "week";
+  if (daysLeft <= 30) return "month";
+  return "later";
+}
+
+const nonEmptyText = (value) => (typeof value === "string" && value.trim() !== "" ? value : null);
+
+/**
+ * @param {{profile: object, goals: object, catalog: object, observations: object[], plan?: object | null, today: string}} input
  * @returns {object} Model
  */
-export function buildModel({ profile, goals, catalog, observations, today }) {
+export function buildModel({ profile, goals, catalog, observations, plan: targets, today }) {
   const defs = catalog.markers || [];
+  const targetItems = targets && targets.items && typeof targets.items === "object" ? targets.items : {};
+  const targetFor = (id) => (targetItems[id] && typeof targetItems[id] === "object" ? targetItems[id] : null);
   const defById = new Map(defs.map((def) => [def.id, def]));
 
   // 1. Measured points, one per (marker, date); a later line replaces an earlier one.
@@ -373,14 +407,17 @@ export function buildModel({ profile, goals, catalog, observations, today }) {
     );
     const latest = series.length ? series[series.length - 1] : null;
     const ref = latest ? latest.ref : def.ref || null;
+    const status = latest ? latest.status : "nodata";
+    const target = targetFor(def.id);
     markers[def.id] = {
       def,
       series,
       latest,
-      status: latest ? latest.status : "nodata",
+      status,
       ref,
       position: latest ? positionFor(latest.value, ref) : null,
-      due: computeDue(def, latest, today),
+      due: computeDue(def, latest, today, target),
+      priority: computePriority(target, status),
       related: def.kind === "derived" ? [...(def.inputs || [])] : [...(derivedUsers.get(def.id) || [])],
     };
   }
@@ -403,31 +440,42 @@ export function buildModel({ profile, goals, catalog, observations, today }) {
     return { id: domain.id, name: domain.name, goal: domain.goal, group: domain.group || null, markerIds, status, counts };
   });
 
-  // 5. Plan.
+  // 5. Plan. One item per (panel, state, date): markers of a panel that are due
+  // on different days are different errands.
   const groups = new Map();
   for (const def of defs) {
-    const state = markers[def.id].due.state;
+    const marker = markers[def.id];
+    const { state, date } = marker.due;
     if (state === "none") continue;
     const groupId = def.panel || def.id;
-    const key = `${groupId}:${state}`;
+    const key = `${groupId}:${state}:${date || ""}`;
     if (!groups.has(key)) {
       const title = def.panel ? (catalog.panels && catalog.panels[def.panel]) || def.panel : def.name;
-      groups.set(key, { key, title, state, date: null, markerIds: [] });
+      groups.set(key, { key, title, state, date, markerIds: [], priority: "low", effort: null, reason: null });
     }
     const group = groups.get(key);
     group.markerIds.push(def.id);
-    const date = markers[def.id].due.date;
-    if (date !== null && (group.date === null || date < group.date)) group.date = date;
-  }
-  const plan = [...groups.values()].sort((a, b) => {
-    if (STATE_ORDER[a.state] !== STATE_ORDER[b.state]) return STATE_ORDER[a.state] - STATE_ORDER[b.state];
-    if (a.date !== b.date) {
-      if (a.date === null) return 1;
-      if (b.date === null) return -1;
-      return a.date < b.date ? -1 : 1;
+    if (PRIORITY_ORDER[marker.priority] < PRIORITY_ORDER[group.priority]) group.priority = marker.priority;
+    const target = targetFor(def.id);
+    if (target) {
+      if (group.effort === null) group.effort = nonEmptyText(target.effort);
+      if (group.reason === null) group.reason = nonEmptyText(target.reason);
     }
-    return a.title < b.title ? -1 : a.title > b.title ? 1 : 0;
-  });
+  }
+  const plan = [...groups.values()]
+    .map((group) => {
+      const daysLeft = group.date === null ? null : daysBetween(today, group.date);
+      return { ...group, daysLeft, urgency: urgencyFor(daysLeft) };
+    })
+    .sort((a, b) => {
+      if (a.date !== b.date) {
+        if (a.date === null) return 1;
+        if (b.date === null) return -1;
+        return a.date < b.date ? -1 : 1;
+      }
+      if (a.priority !== b.priority) return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+      return a.title < b.title ? -1 : a.title > b.title ? 1 : 0;
+    });
 
   const domainGroups = Array.isArray(goals.groups) ? goals.groups : [];
   return { mission: goals.mission, groups: domainGroups, today, lastObservationDate, domains, markers, plan };

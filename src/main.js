@@ -21,7 +21,7 @@ function todayStr() {
 function applyBundle(bundle) {
   state.model = buildModel({
     profile: bundle.profile, goals: bundle.goals, catalog: bundle.catalog,
-    observations: bundle.observations, today: todayStr(),
+    observations: bundle.observations, plan: bundle.plan || null, today: todayStr(),
   });
   // Interpretation travels next to the model; statuses never depend on it.
   state.model.commentary = bundle.commentary || null;

@@ -21,7 +21,8 @@
   --nodata: #B4BAC8;
   --nodata-bg: #ECEFF5;
   --zone-edge: #E9ECF3;
-  --zone-ref: #CBD2E1;
+  --zone-ref: #DCEFDC;
+  --zone-optimal: #B5E0B5;
   --serif: ui-serif, "New York", Georgia, serif;
   --sans: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
   --radius: 14px;
@@ -158,7 +159,10 @@ summary:focus-visible { outline-offset: -2px; }
 
 /* level 2: a marker row */
 .marker { border-top: 1px solid var(--line); }
-.marker > summary, .subgroup > summary {
+.marker > summary { padding: 12px 44px 10px 16px; min-height: 54px; }
+.m-line { display: flex; align-items: center; gap: 10px; }
+.marker > summary .strip { margin-top: 6px; }
+.subgroup > summary {
   display: flex; align-items: center; gap: 10px;
   min-height: 54px; padding: 8px 44px 8px 16px;
 }
@@ -207,17 +211,44 @@ a.row:active { background: var(--sunken); }
 .row-name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .row-side { display: flex; flex-direction: column; align-items: flex-end; text-align: right; flex: none; font-size: 14px; }
 .row-detail { margin-top: 4px; font-size: 14px; color: var(--ink-2); }
-.state { font-weight: 600; }
-.state-overdue { color: var(--out-text); }
-.state-soon { color: var(--watch-text); }
-.state-missing, .state-ok { color: var(--ink-2); }
+.when { flex: none; font-weight: 600; white-space: nowrap; }
+.plan-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 6px; font-size: 14px; color: var(--ink-2); }
+.prio { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.prio-high { color: var(--ink); font-weight: 600; }
+.rel { white-space: nowrap; }
+.urgency-overdue { color: var(--out-text); font-weight: 600; }
+.urgency-week { color: var(--ink); font-weight: 600; }
+.row-detail.effort { color: var(--ink); }
+.plan-summary { margin: 4px 0 0; font-weight: 600; }
 .more { margin: 12px 0 0; }
 .more a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; text-decoration: none; }
 
 /* ---- SVG ---- */
-.strip, .history { display: block; width: 100%; height: auto; overflow: visible; }
-.zone-low, .zone-high { fill: var(--zone-edge); }
+.strip, .history, .profile, .share { display: block; width: 100%; height: auto; overflow: visible; }
+
+/* system profile: stacked marks on one scale, outliers labelled */
+.profile { margin-top: 12px; }
+.profile-label { font: 600 11.5px var(--sans); fill: var(--ink); font-variant-numeric: tabular-nums; }
+.profile-caption { font: 11px var(--sans); fill: var(--ink-3); }
+.leader { stroke: var(--ink-3); stroke-width: 0.75; }
+
+/* share of marker statuses */
+.share-part.share-optimal { fill: var(--good); }
+.share-part.share-watch { fill: var(--watch); }
+.share-part.share-out { fill: var(--out); }
+.share-part.share-unrated { fill: var(--nodata); }
+.share-part.share-nodata { fill: #D5DAE5; }
+.coverage { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--note-edge); }
+.coverage-title { font-weight: 600; font-size: 15px; margin-bottom: 8px; }
+.coverage .tally { margin-top: 8px; }
+
+/* priority */
+.priority-icon { flex: none; display: block; }
+.priority-icon .bar { fill: var(--line); }
+.priority-icon .bar.on { fill: var(--accent); }
+.zone-edge { fill: var(--zone-edge); }
 .zone-ref { fill: var(--zone-ref); }
+.zone-optimal { fill: var(--zone-optimal); }
 .tick { stroke: var(--ink-3); stroke-width: 1; }
 .optimal-line { fill: var(--good); }
 .mark-ring { fill: var(--surface); stroke: var(--surface); stroke-width: 4; stroke-linejoin: round; }
