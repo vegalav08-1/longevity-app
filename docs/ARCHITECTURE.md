@@ -138,7 +138,10 @@ language-model chat with access to the data repository. The owner sends values
 or documents there; the curator validates them, writes observations, rewrites
 the commentary and the plan. `routine` lists what is sent on a schedule.
 A marker that already has data ignores `due` (its date comes from
-`recheck_months`) but keeps `priority`, `effort` and `reason`.
+`recheck_months`) but keeps `priority`, `effort` and `reason`. One exception:
+when that recheck date has already passed and the target's `due` is later, the
+target's `due` is used. This is the case of imported old results, where the
+interval-based date lies years in the past and the curator has set the real one.
 
 ## Engine contract (`src/engine.js`)
 

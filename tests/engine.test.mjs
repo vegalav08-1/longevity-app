@@ -452,6 +452,24 @@ test("buildModel: plan grouping, exclusion and ordering", () => {
   assert.equal(plan[4].daysLeft, null);
 });
 
+test("buildModel: a later plan deadline replaces a recheck date that has passed", () => {
+  const due = (target, date = "2020-03-01") => buildModel({
+    profile, goals, catalog, today: "2026-11-15",
+    plan: target ? { version: 1, items: { glucose: target } } : null,
+    observations: [obs(date, "glucose", 5.0)],
+  }).markers.glucose.due;
+  // recheck 6 months: an old result is overdue since 2020 without a target
+  assert.deepEqual(due(null), { state: "overdue", date: "2020-09-01" });
+  // the curator's later deadline wins, and the state follows it
+  assert.deepEqual(due({ due: "2027-02-13", priority: "low" }), { state: "ok", date: "2027-02-13" });
+  assert.deepEqual(due({ due: "2026-11-20", priority: "low" }), { state: "soon", date: "2026-11-20" });
+  assert.deepEqual(due({ due: "2026-11-01", priority: "low" }), { state: "overdue", date: "2026-11-01" });
+  // a target older than the recheck date changes nothing
+  assert.deepEqual(due({ due: "2020-01-01", priority: "low" }), { state: "overdue", date: "2020-09-01" });
+  // a recheck date still ahead is never replaced
+  assert.deepEqual(due({ due: "2027-12-01", priority: "low" }, "2026-10-01"), { state: "ok", date: "2027-04-01" });
+});
+
 test("buildModel: plan targets give deadlines, priority, effort and reason", () => {
   const targets = {
     version: 1,

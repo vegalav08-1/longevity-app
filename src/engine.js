@@ -298,7 +298,12 @@ function computeDue(def, latest, today, target) {
     return { state: "missing", date: target && typeof target.due === "string" ? target.due : null };
   }
   if (!hasInterval) return { state: "none", date: null };
-  const date = addMonths(latest.date, def.recheck_months);
+  let date = addMonths(latest.date, def.recheck_months);
+  // Old imported results: the recheck date passed long ago. A later deadline
+  // set in plan.json is then the real one.
+  if (daysBetween(today, date) < 0 && target && typeof target.due === "string" && target.due > date) {
+    date = target.due;
+  }
   const days = daysBetween(today, date);
   if (days < 0) return { state: "overdue", date };
   if (days <= SOON_DAYS) return { state: "soon", date };
