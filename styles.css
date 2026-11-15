@@ -431,3 +431,30 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; borde
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
+
+/* ---- guest access ---- */
+.guest-banner {
+  margin: 4px 0 12px; padding: 10px 14px;
+  background: var(--sunken); border: 1px solid var(--line); border-left: 3px solid var(--ink-3);
+  border-radius: 10px;
+}
+.guest-banner p { margin: 0; }
+.guest-banner-title { font-weight: 600; font-size: 15px; color: var(--ink); }
+.guest-banner-text { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+
+.summary { overflow-wrap: anywhere; }
+.summary > :first-child { margin-top: 0; }
+.summary > :last-child { margin-bottom: 0; }
+.summary h2, .summary h3, .summary h4 { font-family: var(--serif); font-weight: 600; color: var(--ink); margin: 20px 0 8px; line-height: 1.25; }
+.summary h2 { font-size: 22px; }
+.summary h3 { font-size: 17px; }
+.summary h4 { font-size: 15px; }
+.summary p { margin: 0 0 12px; font-size: 15px; }
+.summary ul { margin: 0 0 12px; padding-left: 20px; }
+.summary li { margin: 0 0 6px; font-size: 15px; }
+.summary .table-wrap { margin: 4px 0 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.summary table { width: 100%; table-layout: fixed; font-size: 13px; }
+.summary th, .summary td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.summary th { background: var(--sunken); color: var(--ink-2); border-bottom: 1px solid var(--ink-3); }
+.summary tr:last-child td { border-bottom: 0; }
+.summary th:first-child, .summary td:first-child { width: 46%; }

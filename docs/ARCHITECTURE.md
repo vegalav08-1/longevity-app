@@ -9,6 +9,7 @@ it is wrong; change the contract here first, then the code.
 |---|---|---|
 | `longevity-app` | public | Static web app. No personal data, ever. |
 | `longevity-data` | private | Profile, catalog, observations, raw lab documents. |
+| `longevity-share` | public | Encrypted guest snapshots, see «Guest access». |
 
 The app is served as static files (GitHub Pages). It reads the private data
 repository from the browser through the GitHub REST API with a fine-grained
@@ -42,6 +43,7 @@ commentary.json              optional, see Commentary
 plan.json                    optional, see Plan targets
 raw/                          source documents, named YYYY-MM-DD_<lab>_<order>.<ext>
 notes/                        curator notes in Markdown (history, intake, logs); the app never reads them
+shares.json                   optional, guest links: {version, app_url, shares: [{id, label, created, expires, key, summary: boolean}]}
 tools/validate.mjs            `node tools/validate.mjs` must pass before every commit
 ```
 
@@ -292,11 +294,109 @@ path that starts with a single `/` is accepted. Files are fetched from
 `<base>/profile.json` and so on; `observations/<year>.jsonl` is probed for the
 last 30 years and 404 is ignored. Local mode never touches settings or cache.
 
+## Guest access
+
+The owner can give a doctor or a nutritionist a read-only link. The guest needs
+no GitHub account and no token.
+
+### The third repository
+
+`longevity-share` is public and holds encrypted guest snapshots only, one file
+per link.
+
+It is served by GitHub Pages next to the app, so the snapshot is same-origin:
+`https://<owner>.github.io/longevity-share/<id>.json`. Hard rule 1 still holds
+for `longevity-app`: snapshots never go there, encrypted or not.
+
+### Link
+
+```
+https://<owner>.github.io/longevity-app/#/guest/<id>/<key>[/<route>]
+id    24 lowercase hex characters, random; the file name of the snapshot
+key   43 characters, base64url without padding: 32 random bytes (AES-256 key)
+route optional: plan | summary | marker/<markerId> | domain/<domainId>
+```
+
+The key lives only in the URL fragment, which browsers never send to a server.
+Every link inside the app keeps the `guest/<id>/<key>` prefix, so reload,
+bookmark and "add to home screen" keep working.
+
+### Snapshot file
+
+```
+<id>.json = {"v": 1, "alg": "A256GCM", "iv": "<base64url, 12 bytes>", "ct": "<base64url>"}
+```
+
+`ct` is AES-256-GCM over the UTF-8 JSON of the guest bundle, with the 16-byte
+authentication tag appended (the WebCrypto layout). Additional authenticated
+data: the `id` as UTF-8, so a file cannot be swapped for another one.
+
+### Guest bundle (plaintext)
+
+```
+{
+  version   1
+  label     string, who the link is for ("Врач")
+  created   "YYYY-MM-DD"
+  expires   "YYYY-MM-DD", the last day the link works
+  as_of     "YYYY-MM-DD", the day the snapshot was built
+  profile, goals, catalog, observations, commentary, plan   as in the data contract
+  summary   Markdown string | null: a case summary written for an outside reader
+}
+```
+
+The curator builds it in `longevity-data` (`tools/share.mjs`): observations lose
+`order` and `source`; raw documents and the curator notes never leave the
+private repository; `plan` loses `handoff`, `routine` and `curator`. `summary`
+comes from `notes/summary.md` and uses only this Markdown: `#` to `###`
+headings, paragraphs, `-` lists, pipe tables, `**bold**`.
+
+### Lifecycle
+
+- Create and revoke: the curator edits `shares.json` in `longevity-data` (id,
+  label, dates, key) and republishes. Keys never appear in a public repository.
+- Refresh: after every data commit the curator republishes all active
+  snapshots with the same id and key, so a link keeps showing current data.
+- Revoke or expire: the file is removed from `longevity-share`. GitHub Pages
+  may keep serving a removed file for about ten minutes.
+- A snapshot that was already opened cannot be taken back. Revoking stops
+  access to the file; it does not erase what the guest has seen or saved.
+
+### Guest mode in the app
+
+- Entered when the route starts with `guest/<id>/<key>`. The app fetches
+  `../longevity-share/<id>.json` relative to its own base URL with
+  `cache: "no-store"`, decrypts it with WebCrypto and builds the model exactly
+  as for the owner.
+- Writes nothing to `localStorage` and reads neither settings nor cache.
+- Tabs: «Сегодня», «План», «Сводка» (only when `summary` is not null). No
+  «Куратор», no «Настройки».
+- A banner on every screen: who the access is for, the date of the data, the
+  last day of access, and that it is view-only.
+- The plan hides everything meant for the owner: the message for the curator,
+  the copy button, the "sent" mark.
+- After `expires` the app shows only a message; nothing is rendered.
+- Failures are told apart: file not found (revoked or wrong link), cannot
+  decrypt (link copied incompletely), expired, no network.
+
+Data layer additions (`src/data.js`):
+
+```js
+parseGuestRoute(hash) -> {id, key, rest: string[]} | null
+loadGuestBundle({id, key}, {fetchImpl?, baseUrl?}) -> Promise<Bundle & {guest: {label, created, expires, asOf}, summary}>
+decryptSnapshot(fileObject, id, key) -> Promise<object>     // throws DataError("format")
+DataError codes gain "expired".
+```
+
 ## Interface
 
 Routes (hash): `#/` today, `#/domain/<id>` (the today screen with that system
 opened and scrolled into view), `#/marker/<id>`, `#/plan`, `#/curator`, `#/settings`. Bottom
 tab bar: «Сегодня», «План», «Куратор», «Настройки».
+
+In guest mode the same routes live under `#/guest/<id>/<key>/`, plus
+`summary`; see «Guest access». All links are built by one helper that knows the
+current prefix.
 
 The today screen is a three-level disclosure built from `<details>` elements.
 Nothing below the first level is in the DOM until it is opened, and the set of

@@ -7,6 +7,8 @@
 // opened.
 import { formatValue } from "./engine.js";
 import { UI_STATE_KEY } from "./data.js";
+import { link } from "./route.js";
+import { renderMarkdown } from "./markdown.js";
 import { h, formatDateRu, valueText, refText } from "./dom.js";
 import { rangeBar, historyChart, statusIcon, domainProfile, shareBar, priorityIcon } from "./charts.js";
 
@@ -35,7 +37,7 @@ function screen(title, back, ...children) {
 }
 
 const heading = (text) => h("h2", null, text);
-const markerHref = (id) => `#/marker/${encodeURIComponent(id)}`;
+const markerHref = (id) => link(`marker/${encodeURIComponent(id)}`);
 
 function chip(status) {
   return h("span", { class: "chip st-" + status }, statusIcon(status), STATUS_WORD[status] || status);
@@ -82,7 +84,9 @@ export function onStateChange(fn) {
   rerender = fn;
 }
 
-function readSent() {
+// Guest mode never reads or writes localStorage.
+function readSent(model) {
+  if (model && model.guest) return new Set();
   try {
     const stored = JSON.parse(localStorage.getItem(UI_STATE_KEY) || "{}");
     return new Set(Array.isArray(stored.sent) ? stored.sent : []);
@@ -351,8 +355,9 @@ function planBody(model, item, states, isSent) {
     body.append(h("p", { class: "facts" },
       (item.state === "missing" ? "Первое измерение до " : "Пересдача до ") + formatDateRu(item.date)));
   }
-  if (item.handoff) body.append(handoffBlock(item.handoff));
-  body.append(h("div", { class: "plan-actions" },
+  const owner = !model.guest;
+  if (owner && item.handoff) body.append(handoffBlock(item.handoff));
+  if (owner) body.append(h("div", { class: "plan-actions" },
     h("button", {
       class: "btn btn-small" + (isSent ? "" : " btn-primary"), type: "button",
       onclick: () => { toggleSent(item.key); rerender(); },
@@ -369,7 +374,7 @@ function planBody(model, item, states, isSent) {
 function planItem(model, item, sent) {
   const states = item.markerIds.map((id) => model.markers[id]).filter(Boolean);
   const rel = relativeText(item.daysLeft);
-  const isSent = sent.has(item.key);
+  const isSent = !model.guest && sent.has(item.key);
   return disclosure("p:" + item.key, { class: `card plan-item prio-${item.priority}` + (isSent ? " is-sent" : "") }, [
     dateBlock(model, item),
     h("div", { class: "plan-main" },
@@ -388,7 +393,7 @@ export function todayView(model) {
     return screen("Сегодня", null,
       h("div", { class: "card pad" },
         h("p", null, "Данные не подключены. Укажите репозиторий с данными и токен доступа."),
-        h("a", { class: "btn btn-primary", href: "#/settings" }, "Подключить данные")));
+        h("a", { class: "btn btn-primary", href: link("settings") }, "Подключить данные")));
   }
   const bySeverity = (list) => list.slice()
     .sort((a, b) => (DOMAIN_ORDER[a.status] ?? 9) - (DOMAIN_ORDER[b.status] ?? 9));
@@ -405,7 +410,7 @@ export function todayView(model) {
     || (ui.domains === "flagged" && (d.status === "out" || d.status === "watch"))
     || (ui.domains === "nodata" && d.status === "nodata");
   // The plan is already ordered by deadline, then priority.
-  const sent = readSent();
+  const sent = readSent(model);
   const next = model.plan.filter((i) => i.date).slice(0, 3);
   return screen("Сегодня", null,
     model.mission ? h("p", { class: "mission" }, model.mission) : null,
@@ -425,7 +430,7 @@ export function todayView(model) {
     next.length
       ? h("div", { class: "stack" }, ...next.map((i) => planItem(model, i, sent)))
       : h("p", { class: "muted" }, "Ближайших измерений нет."),
-    h("p", { class: "more" }, h("a", { href: "#/plan" }, "Весь план")));
+    h("p", { class: "more" }, h("a", { href: link("plan") }, "Весь план")));
 }
 
 // ---- marker page (full detail) -------------------------------------------------
@@ -433,12 +438,12 @@ export function todayView(model) {
 export function markerView(model, id) {
   const ms = model && model.markers[id];
   if (!ms) {
-    return screen("Показатель", { href: "#/", label: "Назад" },
-      h("p", null, "Показатель не найден."), h("p", null, h("a", { href: "#/" }, "К сводке")));
+    return screen("Показатель", { href: link(), label: "Назад" },
+      h("p", null, "Показатель не найден."), h("p", null, h("a", { href: link() }, "К сводке")));
   }
   const def = ms.def;
   const dec = def.decimals ?? 0;
-  const back = { href: `#/domain/${encodeURIComponent(def.domain)}`, label: "Назад" };
+  const back = { href: link(`domain/${encodeURIComponent(def.domain)}`), label: "Назад" };
   const out = [];
   const comment = markerNote(model, ms);
 
@@ -523,7 +528,7 @@ function dayStrip(model) {
 
 export function planView(model) {
   if (!model) return todayView(null);
-  const sent = readSent();
+  const sent = readSent(model);
   const plan = model.plan;
   const count = (test) => plan.filter(test).length;
   const out = [];
@@ -556,13 +561,22 @@ export function planView(model) {
   return screen("План", null, ...out);
 }
 
+// ---- summary (guest only) -------------------------------------------------------
+
+export function summaryView(model) {
+  const text = model && model.summary;
+  return screen("Сводка", null,
+    h("div", { class: "card pad summary" },
+      text ? renderMarkdown(text) : h("p", { class: "muted" }, "Сводка не приложена.")));
+}
+
 // ---- curator -------------------------------------------------------------------
 
 export function curatorView(model) {
   if (!model) return todayView(null);
   const curator = model.curator;
   const due = model.plan.filter((i) => (i.urgency === "overdue" || i.urgency === "week") && i.handoff);
-  const sent = readSent();
+  const sent = readSent(model);
   const out = [];
 
   out.push(h("section", { class: "lead" },

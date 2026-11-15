@@ -21,11 +21,11 @@ const MESSAGES = {
 
 /**
  * Error raised by the data layer.
- * `code` is one of "auth" | "not_found" | "network" | "format".
+ * `code` is one of "auth" | "not_found" | "network" | "format" | "expired".
  */
 export class DataError extends Error {
   /**
-   * @param {"auth"|"not_found"|"network"|"format"} code
+   * @param {"auth"|"not_found"|"network"|"format"|"expired"} code
    * @param {string} [message] Russian message; a default is used for known codes.
    */
   constructor(code, message) {
@@ -331,4 +331,135 @@ export async function loadBundle(source) {
   if (!source) throw new DataError("not_found", "Источник данных не настроен.");
   if (source.mode === "local") return loadLocal(source);
   return loadGithub(source);
+}
+
+// ---- guest access --------------------------------------------------------------
+// Contract: docs/ARCHITECTURE.md, section "Guest access". Nothing here touches localStorage.
+
+const GUEST_ID_PATTERN = /^[0-9a-f]{24}$/;
+const GUEST_KEY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const GUEST_FORMAT_MESSAGE = "Ссылка повреждена: скопируйте её целиком и откройте заново.";
+
+/**
+ * Parses `#/guest/<id>/<key>[/<route>]`.
+ * @param {string} hash
+ * @returns {{id: string, key: string, rest: string[]} | null}
+ */
+export function parseGuestRoute(hash) {
+  const parts = String(hash ?? "").replace(/^#\/?/, "").split("/").filter(Boolean);
+  if (parts[0] !== "guest") return null;
+  const id = parts[1];
+  const key = parts[2];
+  if (!GUEST_ID_PATTERN.test(id || "") || !GUEST_KEY_PATTERN.test(key || "")) return null;
+  let rest;
+  try {
+    rest = parts.slice(3).map(decodeURIComponent);
+  } catch {
+    return null;
+  }
+  return { id, key, rest };
+}
+
+function base64urlToBytes(text) {
+  if (typeof text !== "string" || !/^[A-Za-z0-9_-]*$/.test(text) || text.length % 4 === 1) {
+    throw new Error("bad base64url");
+  }
+  const bin = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * Decrypts a snapshot file (AES-256-GCM, tag appended, AAD = id).
+ * @param {{v: number, alg: string, iv: string, ct: string}} fileObject
+ * @param {string} id
+ * @param {string} key base64url, 32 bytes
+ * @returns {Promise<object>} the parsed guest bundle
+ * @throws {DataError} code "format" on any failure
+ */
+export async function decryptSnapshot(fileObject, id, key) {
+  const fail = () => new DataError("format", GUEST_FORMAT_MESSAGE);
+  try {
+    const f = fileObject;
+    if (!f || typeof f !== "object" || f.v !== 1 || f.alg !== "A256GCM"
+      || typeof f.iv !== "string" || typeof f.ct !== "string") throw new Error("shape");
+    const iv = base64urlToBytes(f.iv);
+    const ct = base64urlToBytes(f.ct);
+    const raw = base64urlToBytes(key);
+    if (iv.length !== 12 || raw.length !== 32 || ct.length < 16) throw new Error("length");
+    const subtle = globalThis.crypto.subtle;
+    const cryptoKey = await subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["decrypt"]);
+    const plain = await subtle.decrypt(
+      { name: "AES-GCM", iv, additionalData: new TextEncoder().encode(String(id)) }, cryptoKey, ct);
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(plain));
+  } catch {
+    throw fail();
+  }
+}
+
+function todayLocal() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function formatIsoRu(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+  if (!m) return String(iso);
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])));
+}
+
+/**
+ * Fetches and decrypts the guest snapshot.
+ * @param {{id: string, key: string}} route
+ * @param {{fetchImpl?: Function, baseUrl?: string, today?: string}} [options]
+ * @returns {Promise<object>} Bundle plus `guest: {label, created, expires, asOf}` and `summary`
+ * @throws {DataError}
+ */
+export async function loadGuestBundle({ id, key }, { fetchImpl, baseUrl, today } = {}) {
+  const doFetch = fetchImpl || ((...args) => globalThis.fetch(...args));
+  const url = new URL("../longevity-share/" + id + ".json", baseUrl || globalThis.document?.baseURI);
+  const networkMessage = "Не удалось загрузить данные. Проверьте соединение и откройте ссылку ещё раз.";
+  let response;
+  try {
+    response = await doFetch(url.href, { cache: "no-store" });
+  } catch {
+    throw new DataError("network", networkMessage);
+  }
+  if (response.status === 404) {
+    throw new DataError("not_found", "Ссылка недействительна или доступ отозван.");
+  }
+  if (!response.ok) throw new DataError("network", networkMessage);
+  let fileObject;
+  try {
+    fileObject = JSON.parse(await response.text());
+  } catch {
+    throw new DataError("format", GUEST_FORMAT_MESSAGE);
+  }
+  const bundle = await decryptSnapshot(fileObject, id, key);
+  const bad = () => new DataError("format", "Снимок данных имеет неожиданный формат.");
+  if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) throw bad();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(bundle.expires)) && bundle.expires < (today || todayLocal())) {
+    throw new DataError("expired",
+      "Срок доступа истёк " + formatIsoRu(bundle.expires) + ". Попросите владельца продлить доступ.");
+  }
+  if (!bundle.profile || !bundle.goals || !bundle.catalog || !Array.isArray(bundle.observations)) throw bad();
+  return {
+    profile: bundle.profile,
+    goals: bundle.goals,
+    catalog: bundle.catalog,
+    observations: bundle.observations,
+    commentary: bundle.commentary && typeof bundle.commentary === "object" ? bundle.commentary : null,
+    plan: bundle.plan && typeof bundle.plan === "object" ? bundle.plan : null,
+    fetchedAt: new Date().toISOString(),
+    guest: {
+      label: String(bundle.label ?? ""),
+      created: bundle.created ?? null,
+      expires: bundle.expires ?? null,
+      asOf: bundle.as_of ?? null,
+    },
+    summary: typeof bundle.summary === "string" && bundle.summary.trim() ? bundle.summary : null,
+  };
 }

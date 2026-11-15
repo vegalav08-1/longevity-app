@@ -1,15 +1,16 @@
-import { getSource, getSettings, saveSettings, clearDevice, readCache, loadBundle } from "./data.js";
+import { getSource, getSettings, saveSettings, clearDevice, readCache, loadBundle, parseGuestRoute, loadGuestBundle, DataError } from "./data.js";
 import { buildModel } from "./engine.js";
-import { h } from "./dom.js";
+import { h, formatDateRu } from "./dom.js";
+import { link, setRoutePrefix } from "./route.js";
 import { statusIcon } from "./charts.js";
-import { todayView, markerView, planView, curatorView, settingsView, openDomain, onStateChange } from "./views.js";
+import { todayView, markerView, planView, summaryView, curatorView, settingsView, openDomain, onStateChange } from "./views.js";
 
 const $view = document.getElementById("view");
 const $title = document.getElementById("title");
 const $back = document.getElementById("back");
 const $tabs = [...document.querySelectorAll("[data-tab]")];
 
-const state = { source: null, model: null, fetchedAt: null, loading: false, error: null };
+const state = { source: null, model: null, fetchedAt: null, loading: false, error: null, guest: null, guestRoute: null };
 let bootId = 0;
 
 function todayStr() {
@@ -28,11 +29,33 @@ function applyBundle(bundle) {
   state.fetchedAt = bundle.fetchedAt || null;
 }
 
+function applyGuestBundle(bundle) {
+  applyBundle(bundle);
+  state.guest = { id: state.guestRoute.id, key: state.guestRoute.key, ...bundle.guest };
+  state.model.guest = state.guest;
+  state.model.summary = bundle.summary || null;
+}
+
+function guestBanner() {
+  const g = state.guest;
+  return h("div", { class: "guest-banner", role: "note" },
+    h("p", { class: "guest-banner-title" }, "Гостевой доступ: " + g.label),
+    h("p", { class: "guest-banner-text" },
+      // formatDateRu ends with "г.", which already closes the sentence
+      [g.asOf ? `Данные на ${formatDateRu(g.asOf)}` : null, g.expires ? `Доступ до ${formatDateRu(g.expires)}` : null, "Только просмотр."]
+        .filter(Boolean).map((part) => (part.endsWith(".") ? part : part + ".")).join(" ")));
+}
+
 // ---- routing -----------------------------------------------------------------
 
 function parseRoute() {
-  const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
-  const arg = parts[1] ? decodeURIComponent(parts[1]) : "";
+  const guest = parseGuestRoute(location.hash);
+  const parts = guest
+    ? guest.rest.filter(Boolean)
+    : location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  let arg = "";
+  try { arg = parts[1] ? (guest ? parts[1] : decodeURIComponent(parts[1])) : ""; } catch { arg = ""; }
+  if (guest && parts[0] === "summary") return { name: "summary" };
   if (parts[0] === "domain" && arg) return { name: "domain", id: arg };
   if (parts[0] === "marker" && arg) return { name: "marker", id: arg };
   if (parts[0] === "plan") return { name: "plan" };
@@ -44,7 +67,7 @@ function parseRoute() {
 function placeholder() {
   const msg = state.loading ? "Загружаю данные…" : state.error ? state.error.message : "Данные не загружены.";
   return h("div", { class: "screen", "data-title": "Сегодня" }, h("div", { class: "card pad" }, h("p", { role: "status" }, msg),
-    state.error && state.error.code === "auth" ? h("a", { href: "#/settings" }, "Открыть настройки") : null));
+    state.error && state.error.code === "auth" && !state.guestRoute ? h("a", { href: link("settings") }, "Открыть настройки") : null));
 }
 
 function settingsNode() {
@@ -59,8 +82,12 @@ function settingsNode() {
 }
 
 function viewFor(route) {
+  if (state.guestRoute) {
+    if (!state.model) return placeholder();
+    if (route.name === "settings" || route.name === "curator") return todayView(state.model);
+  }
   if (route.name === "settings") return settingsNode();
-  if (state.source && !state.model) {
+  if (!state.guestRoute && state.source && !state.model) {
     const p = placeholder();
     if (route.name === "plan") p.dataset.title = "План";
     return p;
@@ -70,6 +97,7 @@ function viewFor(route) {
     case "domain": openDomain(route.id); return todayView(state.model);
     case "marker": return markerView(state.model, route.id);
     case "plan": return planView(state.model);
+    case "summary": return summaryView(state.model);
     case "curator": return curatorView(state.model);
     default: return todayView(state.model);
   }
@@ -79,10 +107,12 @@ function render(fresh) {
   const route = parseRoute();
   const node = viewFor(route);
   const children = [];
+  const guestOk = state.guestRoute && state.model && state.guest;
+  if (guestOk) children.push(guestBanner());
   // a failed background refresh keeps the shown data and adds one line on top
-  if (state.error && state.model && route.name !== "settings") {
+  if (!state.guestRoute && state.error && state.model && route.name !== "settings") {
     children.push(h("p", { class: "notice", role: "status" }, statusIcon("out"),
-      h("span", null, state.error.message, state.error.code === "auth" ? [" ", h("a", { href: "#/settings" }, "Настройки")] : null)));
+      h("span", null, state.error.message, state.error.code === "auth" ? [" ", h("a", { href: link("settings") }, "Настройки")] : null)));
   }
   children.push(node);
   $view.replaceChildren(...children);
@@ -96,9 +126,15 @@ function render(fresh) {
   } else {
     $back.hidden = true;
   }
-  const active = ["plan", "curator", "settings"].includes(route.name) ? route.name : "today";
+  const guestMode = !!state.guestRoute;
+  const active = ["plan", "curator", "settings", "summary"].includes(route.name) ? route.name : "today";
+  const tabPaths = { today: "", plan: "plan", summary: "summary", curator: "curator", settings: "settings" };
   for (const a of $tabs) {
-    if (a.dataset.tab === active) a.setAttribute("aria-current", "page");
+    const tab = a.dataset.tab;
+    a.setAttribute("href", link(tabPaths[tab] || ""));
+    if (guestMode) a.hidden = !state.model || tab === "curator" || tab === "settings" || (tab === "summary" && !state.model.summary);
+    else a.hidden = tab === "summary";
+    if (tab === active && !a.hidden) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
   if (fresh) {
@@ -111,8 +147,57 @@ function render(fresh) {
 
 // ---- data --------------------------------------------------------------------
 
-async function boot() {
+async function bootGuest(route) {
   const id = ++bootId;
+  state.guestRoute = { id: route.id, key: route.key };
+  setRoutePrefix(`guest/${route.id}/${route.key}/`);
+  state.source = null;
+  state.guest = null;
+  state.error = null;
+  state.model = null;
+  state.fetchedAt = null;
+  state.loading = true;
+  render(false);
+  try {
+    const bundle = await loadGuestBundle(route);
+    if (id !== bootId) return;
+    applyGuestBundle(bundle);
+  } catch (e) {
+    if (id !== bootId) return;
+    state.error = e;
+    state.model = null;
+  }
+  state.loading = false;
+  render(false);
+}
+
+// A hash that starts like a guest link but does not parse: the link was cut
+// short on the way. The guest must not land on the owner's setup screen.
+function looksLikeGuest() {
+  return /^#\/?guest(\/|$)/.test(location.hash);
+}
+
+function bootBrokenGuest() {
+  bootId += 1;
+  state.guestRoute = { id: null, key: null };
+  setRoutePrefix("");
+  state.source = null;
+  state.guest = null;
+  state.model = null;
+  state.fetchedAt = null;
+  state.loading = false;
+  state.error = new DataError("format", "Ссылка повреждена: скопируйте её целиком и откройте заново.");
+  render(false);
+}
+
+async function boot() {
+  const guest = parseGuestRoute(location.hash);
+  if (guest) return bootGuest(guest);
+  if (looksLikeGuest()) return bootBrokenGuest();
+  const id = ++bootId;
+  state.guestRoute = null;
+  state.guest = null;
+  setRoutePrefix("");
   state.source = getSource();
   state.error = null;
   state.model = null;
@@ -163,7 +248,16 @@ function onSave(repo, token) {
   });
 }
 
-window.addEventListener("hashchange", () => render(true));
+// Entering, switching or leaving guest mode reboots; other hash changes only re-render.
+function syncMode() {
+  const next = parseGuestRoute(location.hash);
+  const cur = state.guestRoute;
+  if (next && (!cur || cur.id !== next.id || cur.key !== next.key)) { bootGuest(next).then(() => render(true)); return; }
+  if (!next && (cur || looksLikeGuest())) { boot().then(() => render(true)); return; }
+  render(true);
+}
+
+window.addEventListener("hashchange", syncMode);
 // Filters and "sent" marks change what a screen shows without changing the route.
 onStateChange(() => render(false));
 
