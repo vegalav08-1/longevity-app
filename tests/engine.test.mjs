@@ -466,6 +466,10 @@ test("buildModel: a later plan deadline replaces a recheck date that has passed"
   assert.deepEqual(due({ due: "2026-11-01", priority: "low" }), { state: "overdue", date: "2026-11-01" });
   // a target older than the recheck date changes nothing
   assert.deepEqual(due({ due: "2020-01-01", priority: "low" }), { state: "overdue", date: "2020-09-01" });
+  // keep_due: the curator's deadline stands although a fresh value exists
+  assert.deepEqual(due({ due: "2026-11-22", priority: "high", keep_due: true }, "2026-11-15"), { state: "soon", date: "2026-11-22" });
+  assert.deepEqual(due({ due: "2026-11-10", priority: "high", keep_due: true }, "2026-11-05"), { state: "overdue", date: "2026-11-10" });
+  assert.deepEqual(due({ due: "2026-11-22", priority: "high", keep_due: false }, "2026-11-15"), { state: "ok", date: "2027-05-15" });
   // a recheck date still ahead is never replaced
   assert.deepEqual(due({ due: "2027-12-01", priority: "low" }, "2026-10-01"), { state: "ok", date: "2027-04-01" });
 });

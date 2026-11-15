@@ -132,7 +132,8 @@ plan.json = {
   written   "YYYY-MM-DD"
   author    string
   items     {[markerId]: {due: "YYYY-MM-DD", priority: "high" | "medium" | "low",
-                          effort?: string, reason?: string, handoff?: string}}
+                          effort?: string, reason?: string, handoff?: string,
+                          keep_due?: boolean}}
   routine?  [{title, when, what, handoff?}]     recurring data the owner sends
   curator?  {name, where}                        who enters the data and where to send it
 }
@@ -150,6 +151,9 @@ A marker that already has data ignores `due` (its date comes from
 when that recheck date has already passed and the target's `due` is later, the
 target's `due` is used. This is the case of imported old results, where the
 interval-based date lies years in the past and the curator has set the real one.
+A target with `keep_due: true` keeps its `due` even though the marker has data:
+the curator uses it when a value exists but a proper measurement is still owed
+(a baseline after a single spot reading) and removes the flag when it arrives.
 
 ## Engine contract (`src/engine.js`)
 

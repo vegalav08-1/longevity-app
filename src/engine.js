@@ -297,6 +297,12 @@ function computeDue(def, latest, today, target) {
     // Never measured: the deadline, if any, is set in plan.json.
     return { state: "missing", date: target && typeof target.due === "string" ? target.due : null };
   }
+  // The curator asks for a measurement by a date although a value exists, for
+  // example a proper baseline after a single spot reading.
+  if (target && target.keep_due === true && typeof target.due === "string") {
+    const left = daysBetween(today, target.due);
+    return { state: left < 0 ? "overdue" : left <= SOON_DAYS ? "soon" : "ok", date: target.due };
+  }
   if (!hasInterval) return { state: "none", date: null };
   let date = addMonths(latest.date, def.recheck_months);
   // Old imported results: the recheck date passed long ago. A later deadline
