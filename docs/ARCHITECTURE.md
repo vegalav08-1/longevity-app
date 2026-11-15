@@ -41,6 +41,7 @@ observations/YYYY.jsonl       one Observation per line, file chosen by the year 
 commentary.json              optional, see Commentary
 plan.json                    optional, see Plan targets
 raw/                          source documents, named YYYY-MM-DD_<lab>_<order>.<ext>
+notes/                        curator notes in Markdown (history, intake, logs); the app never reads them
 tools/validate.mjs            `node tools/validate.mjs` must pass before every commit
 ```
 
@@ -359,3 +360,7 @@ open http://localhost:8765/longevity-app/?base=/longevity-data
 node --test                 # in longevity-app
 node tools/validate.mjs     # in longevity-data
 ```
+
+Interface acceptance (screenshots at phone widths plus interaction checks):
+`python3 tools/acceptance.py <screenshot dir>`. Project status, decisions and the
+backlog live in [ROADMAP.md](ROADMAP.md).

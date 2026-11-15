@@ -13,6 +13,8 @@
 - `manifest.webmanifest`, `icons/` — установка на домашний экран.
 - `tests/` — тесты на `node:test`.
 - `docs/ARCHITECTURE.md` — контракты данных и кода.
+- `docs/ROADMAP.md` — состояние проекта, принятые решения, план развития.
+- `tools/acceptance.py` — приёмка интерфейса: снимки экранов и проверка интерактива.
 - `.nojekyll` — GitHub Pages отдаёт файлы как есть.
 
 ## Первый запуск
@@ -42,4 +44,4 @@ node tools/validate.mjs     # в longevity-data
 
 ## Документация
 
-Контракты и правила: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Контракты и правила: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Состояние и план: [docs/ROADMAP.md](docs/ROADMAP.md).
