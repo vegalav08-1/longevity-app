@@ -149,7 +149,11 @@ function onSave(repo, token) {
     return;
   }
   saveSettings({ repo, token: tok });
-  boot();
+  // A successful load leaves the settings screen: staying on the form with no
+  // visible change reads as "nothing happened". Errors keep the form in view.
+  boot().then(() => {
+    if (!state.error && state.model) location.hash = "#/";
+  });
 }
 
 window.addEventListener("hashchange", () => render(true));
