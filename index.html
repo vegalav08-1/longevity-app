@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#F2F4F8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Долголетие">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'none'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon.svg">
+<link rel="stylesheet" href="styles.css">
+<title>Долголетие</title>
+</head>
+<body>
+<header class="page-header">
+  <a id="back" class="back" href="#/" hidden>Назад</a>
+  <h1 id="title" tabindex="-1">Сегодня</h1>
+</header>
+<main id="view"></main>
+<nav class="tabbar" aria-label="Разделы">
+  <div class="tabs">
+    <a href="#/" data-tab="today">Сегодня</a>
+    <a href="#/plan" data-tab="plan">План</a>
+    <a href="#/settings" data-tab="settings">Настройки</a>
+  </div>
+</nav>
+<noscript><p class="noscript">Для работы приложения нужен JavaScript.</p></noscript>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
