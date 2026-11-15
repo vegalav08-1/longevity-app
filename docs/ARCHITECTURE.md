@@ -78,7 +78,7 @@ ref_low     optional number, reference range printed on the lab report
 ref_high    optional number
 lab         optional string
 order       optional string, lab order id
-source      optional path inside the data repo (raw/...)
+source      optional path inside the data repo (raw/...), or "chat" for a value the owner dictated to the curator
 verified    boolean. true only for values read from a text-layer PDF or confirmed by the owner
 note        optional string
 ```
