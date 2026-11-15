@@ -2,7 +2,7 @@ import { getSource, getSettings, saveSettings, clearDevice, readCache, loadBundl
 import { buildModel } from "./engine.js";
 import { h } from "./dom.js";
 import { statusIcon } from "./charts.js";
-import { todayView, markerView, planView, settingsView, openDomain } from "./views.js";
+import { todayView, markerView, planView, curatorView, settingsView, openDomain, onStateChange } from "./views.js";
 
 const $view = document.getElementById("view");
 const $title = document.getElementById("title");
@@ -36,6 +36,7 @@ function parseRoute() {
   if (parts[0] === "domain" && arg) return { name: "domain", id: arg };
   if (parts[0] === "marker" && arg) return { name: "marker", id: arg };
   if (parts[0] === "plan") return { name: "plan" };
+  if (parts[0] === "curator") return { name: "curator" };
   if (parts[0] === "settings") return { name: "settings" };
   return { name: "today" };
 }
@@ -69,6 +70,7 @@ function viewFor(route) {
     case "domain": openDomain(route.id); return todayView(state.model);
     case "marker": return markerView(state.model, route.id);
     case "plan": return planView(state.model);
+    case "curator": return curatorView(state.model);
     default: return todayView(state.model);
   }
 }
@@ -94,7 +96,7 @@ function render(fresh) {
   } else {
     $back.hidden = true;
   }
-  const active = route.name === "plan" ? "plan" : route.name === "settings" ? "settings" : "today";
+  const active = ["plan", "curator", "settings"].includes(route.name) ? route.name : "today";
   for (const a of $tabs) {
     if (a.dataset.tab === active) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
@@ -162,6 +164,8 @@ function onSave(repo, token) {
 }
 
 window.addEventListener("hashchange", () => render(true));
+// Filters and "sent" marks change what a screen shows without changing the route.
+onStateChange(() => render(false));
 
 if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
   window.addEventListener("load", () => {

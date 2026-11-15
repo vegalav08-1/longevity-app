@@ -90,12 +90,17 @@ test("saveSettings rejects a malformed repository with code format", () => {
   assert.equal(getSettings(), null);
 });
 
-test("clearDevice removes settings and cache", () => {
+test("clearDevice removes settings, cache and interface state", () => {
+  assert.equal(data.UI_STATE_KEY, "longevity.ui.v1");
   saveSettings({ repo: "owner/repo", token: "t" });
   localStorage.setItem(CACHE_KEY, "{}");
+  localStorage.setItem("longevity.ui.v1", JSON.stringify({ sent: { m1: true } }));
+  localStorage.setItem("unrelated.key", "keep");
   clearDevice();
   assert.equal(localStorage.getItem(SETTINGS_KEY), null);
   assert.equal(localStorage.getItem(CACHE_KEY), null);
+  assert.equal(localStorage.getItem("longevity.ui.v1"), null);
+  assert.equal(localStorage.getItem("unrelated.key"), "keep");
 });
 
 test("getSource accepts a valid base and strips the trailing slash", () => {

@@ -6,6 +6,7 @@
 // to the full history. Nothing below the first level is in the DOM until it is
 // opened.
 import { formatValue } from "./engine.js";
+import { UI_STATE_KEY } from "./data.js";
 import { h, formatDateRu, valueText, refText } from "./dom.js";
 import { rangeBar, historyChart, statusIcon, domainProfile, shareBar, priorityIcon } from "./charts.js";
 
@@ -18,7 +19,9 @@ const MARKER_TALLY = {
 const TALLY_ORDER = ["out", "watch", "optimal", "unrated", "nodata"];
 // Problems first, then what has never been assessed, then what is fine.
 const DOMAIN_ORDER = { out: 0, watch: 1, nodata: 2, unrated: 3, optimal: 4 };
-const PRIORITY_WORD = { high: "Высокий приоритет", medium: "Средний приоритет", low: "Низкий приоритет" };
+const PRIORITY_WORD = { high: "Высокий", medium: "Средний", low: "Низкий" };
+const MONTHS_SHORT = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+const WEEKDAYS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
 const URGENCY_SECTIONS = [
   ["overdue", "Просрочено"], ["week", "На этой неделе"], ["month", "В этом месяце"],
   ["later", "Позже"], ["none", "Без срока"],
@@ -69,6 +72,43 @@ function disclosure(key, attrs, summaryChildren, buildBody) {
   return el;
 }
 
+// ---- interface state -----------------------------------------------------------
+// Filters live for the session; "sent to the curator" marks live on the device.
+
+const ui = { domains: "all", planPriority: "all", planDate: null };
+let rerender = () => {};
+
+export function onStateChange(fn) {
+  rerender = fn;
+}
+
+function readSent() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(UI_STATE_KEY) || "{}");
+    return new Set(Array.isArray(stored.sent) ? stored.sent : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function toggleSent(key) {
+  const sent = readSent();
+  if (sent.has(key)) sent.delete(key); else sent.add(key);
+  try {
+    localStorage.setItem(UI_STATE_KEY, JSON.stringify({ sent: [...sent] }));
+  } catch {
+    // storage unavailable: the mark simply does not persist
+  }
+}
+
+function filterBar(label, options, current, pick) {
+  return h("div", { class: "filters", role: "group", "aria-label": label },
+    ...options.map(([value, text, count]) => h("button", {
+      type: "button", class: "filter", "aria-pressed": String(current === value),
+      onclick: () => { pick(value); rerender(); },
+    }, text, count != null ? h("span", { class: "filter-count" }, String(count)) : null)));
+}
+
 // ---- commentary ----------------------------------------------------------------
 
 function note(commentary, text, stale) {
@@ -117,7 +157,7 @@ function recheckText(ms) {
     return "Следующая сдача: " + formatDateRu(due.date) + (due.state === "overdue" ? ", просрочено" : "");
   }
   if (due.state === "missing") {
-    return due.date ? "Ещё не измерялось. Срок первого измерения: " + formatDateRu(due.date) + "." : "Ещё не измерялось.";
+    return due.date ? "Ещё не измерялось. Срок первого измерения: " + formatDateRu(due.date) : "Ещё не измерялось.";
   }
   if (ms.def.kind === "derived") return "Считается автоматически из связанных показателей.";
   return ms.def.recheck_note || "Регулярная пересдача не требуется.";
@@ -233,7 +273,7 @@ function lead(model) {
       (stale ? ". С тех пор появились новые измерения." : "")) : null);
 }
 
-// ---- plan rows -----------------------------------------------------------------
+// ---- plan items ----------------------------------------------------------------
 
 const plural = (n, one, few, many) => {
   const d = Math.abs(n) % 100, u = d % 10;
@@ -254,6 +294,13 @@ function relativeText(daysLeft) {
   return daysLeft < 0 ? `просрочено на ${span}` : `через ${span}`;
 }
 
+const parts = (iso) => iso.split("-").map(Number);
+
+function addDays(iso, n) {
+  const [y, m, d] = parts(iso);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
 // A panel title names every marker of the panel. An item that covers one
 // marker, or a small part of a panel, is named after what is actually due.
 function planTitle(model, item) {
@@ -267,24 +314,73 @@ function planTitle(model, item) {
   return item.title;
 }
 
-function planRow(model, item) {
-  const states = item.markerIds.map((id) => model.markers[id]).filter(Boolean);
-  const title = planTitle(model, item);
-  const rel = relativeText(item.daysLeft);
-  const row = h("a", { class: "row plan-row", href: markerHref(item.markerIds[0]) },
-    h("div", { class: "row-main" },
-      h("span", { class: "row-name" }, title),
-      item.date ? h("span", { class: "when" }, formatDateRu(item.date)) : null),
-    h("div", { class: "plan-meta" },
-      h("span", { class: "prio prio-" + item.priority }, priorityIcon(item.priority), PRIORITY_WORD[item.priority]),
-      rel ? h("span", { class: "rel urgency-" + item.urgency }, rel) : null));
-  if (item.effort) row.append(h("div", { class: "row-detail effort" }, item.effort));
-  const reason = item.reason || (states.length === 1 && item.state === "missing" ? states[0].def.why : null);
-  if (reason) row.append(h("div", { class: "row-detail" }, reason));
-  if (!reason && states.length > 1 && states.length <= 8 && title === item.title) {
-    row.append(h("div", { class: "row-detail names" }, states.map((m) => m.def.short_name || m.def.name).join(", ")));
+// The deadline as a calendar leaf, tinted by how close it is.
+function dateBlock(model, item) {
+  if (!item.date) {
+    return h("div", { class: "date-block urg-none", "aria-hidden": "true" }, h("span", { class: "date-day" }, "—"));
   }
-  return row;
+  const [y, m, d] = parts(item.date);
+  const sameYear = y === parts(model.today)[0];
+  return h("div", { class: "date-block urg-" + item.urgency, "aria-hidden": "true" },
+    h("span", { class: "date-day" }, String(d)),
+    h("span", { class: "date-month" }, MONTHS_SHORT[m - 1] + (sameYear ? "" : " " + String(y).slice(2))));
+}
+
+function handoffBlock(text) {
+  const button = h("button", { class: "btn btn-small", type: "button" }, "Скопировать");
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      button.textContent = "Скопировано";
+    } catch {
+      button.textContent = "Выдели текст вручную";
+    }
+    setTimeout(() => { button.textContent = "Скопировать"; }, 2000);
+  });
+  return h("div", { class: "handoff" },
+    h("div", { class: "handoff-label" }, "Что отправить куратору"),
+    h("div", { class: "handoff-text" }, text),
+    button);
+}
+
+function planBody(model, item, states, isSent) {
+  const body = h("div", { class: "plan-body" });
+  const reason = item.reason || (states.length === 1 && item.state === "missing" ? states[0].def.why : null);
+  if (reason) body.append(h("p", { class: "plan-reason" }, reason));
+  if (item.date) {
+    body.append(h("p", { class: "facts" },
+      (item.state === "missing" ? "Первое измерение до " : "Пересдача до ") + formatDateRu(item.date)));
+  }
+  if (item.handoff) body.append(handoffBlock(item.handoff));
+  body.append(h("div", { class: "plan-actions" },
+    h("button", {
+      class: "btn btn-small" + (isSent ? "" : " btn-primary"), type: "button",
+      onclick: () => { toggleSent(item.key); rerender(); },
+    }, isSent ? "Снять отметку" : "Отметить: отправлено куратору")));
+  if (states.length <= 8) {
+    body.append(h("div", { class: "plan-markers" },
+      ...states.map((m) => h("a", { class: "mini-link", href: markerHref(m.def.id) }, m.def.short_name || m.def.name))));
+  } else {
+    body.append(h("p", { class: "facts" }, `Показателей в панели: ${states.length}.`));
+  }
+  return body;
+}
+
+function planItem(model, item, sent) {
+  const states = item.markerIds.map((id) => model.markers[id]).filter(Boolean);
+  const rel = relativeText(item.daysLeft);
+  const isSent = sent.has(item.key);
+  return disclosure("p:" + item.key, { class: `card plan-item prio-${item.priority}` + (isSent ? " is-sent" : "") }, [
+    dateBlock(model, item),
+    h("div", { class: "plan-main" },
+      h("div", { class: "plan-title" }, planTitle(model, item)),
+      h("div", { class: "plan-chips" },
+        h("span", { class: "chip-prio prio-" + item.priority },
+          priorityIcon(item.priority), PRIORITY_WORD[item.priority], h("span", { class: "sr" }, " приоритет")),
+        rel ? h("span", { class: "chip-rel urg-" + item.urgency }, rel) : null,
+        isSent ? h("span", { class: "chip-sent" }, "Отправлено") : null),
+      item.effort ? h("div", { class: "plan-effort" }, item.effort) : null),
+  ], () => planBody(model, item, states, isSent));
 }
 
 export function todayView(model) {
@@ -303,18 +399,31 @@ export function todayView(model) {
     .filter((sec) => sec.domains.length);
   const loose = model.domains.filter((d) => !known.has(d.group));
   if (loose.length) sections.push({ title: "Системы", domains: loose });
+  const flaggedCount = model.domains.filter((d) => d.status === "out" || d.status === "watch").length;
+  const noDataCount = model.domains.filter((d) => d.status === "nodata").length;
+  const visible = (d) => ui.domains === "all"
+    || (ui.domains === "flagged" && (d.status === "out" || d.status === "watch"))
+    || (ui.domains === "nodata" && d.status === "nodata");
   // The plan is already ordered by deadline, then priority.
-  const next = model.plan.filter((i) => i.date).slice(0, 4);
+  const sent = readSent();
+  const next = model.plan.filter((i) => i.date).slice(0, 3);
   return screen("Сегодня", null,
     model.mission ? h("p", { class: "mission" }, model.mission) : null,
     lead(model),
-    ...sections.flatMap((sec) => [
-      heading(sec.title),
-      h("div", { class: "stack" }, ...bySeverity(sec.domains).map((d) => domainItem(model, d))),
-    ]),
+    filterBar("Фильтр систем", [
+      ["all", "Все", model.domains.length],
+      ["flagged", "Требуют внимания", flaggedCount],
+      ["nodata", "Без данных", noDataCount],
+    ], ui.domains, (value) => { ui.domains = value; }),
+    ...sections.flatMap((sec) => {
+      const shown = bySeverity(sec.domains).filter(visible);
+      return shown.length
+        ? [heading(sec.title), h("div", { class: "stack" }, ...shown.map((d) => domainItem(model, d)))]
+        : [];
+    }),
     heading("Что дальше"),
     next.length
-      ? h("div", { class: "card" }, ...next.map((i) => planRow(model, i)))
+      ? h("div", { class: "stack" }, ...next.map((i) => planItem(model, i, sent)))
       : h("p", { class: "muted" }, "Ближайших измерений нет."),
     h("p", { class: "more" }, h("a", { href: "#/plan" }, "Весь план")));
 }
@@ -386,24 +495,107 @@ export function markerView(model, id) {
 
 // ---- plan ----------------------------------------------------------------------
 
+function stat(value, label, tone) {
+  return h("div", { class: "stat" + (tone ? " stat-" + tone : "") },
+    h("span", { class: "stat-value" }, String(value)), h("span", { class: "stat-label" }, label));
+}
+
+// The next eight days as a strip; a day with items is a filter.
+function dayStrip(model) {
+  const cells = [];
+  for (let i = 0; i < 8; i += 1) {
+    const date = addDays(model.today, i);
+    const items = model.plan.filter((p) => p.date === date);
+    const [y, m, d] = parts(date);
+    const weekday = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+    cells.push(h("button", {
+      type: "button", class: "day" + (i === 0 ? " is-today" : ""), disabled: items.length ? null : true,
+      "aria-pressed": String(ui.planDate === date),
+      "aria-label": `${formatDateRu(date)}: ${items.length} ${plural(items.length, "пункт", "пункта", "пунктов")}`,
+      onclick: () => { ui.planDate = ui.planDate === date ? null : date; rerender(); },
+    },
+      h("span", { class: "day-week" }, weekday),
+      h("span", { class: "day-num" }, String(d)),
+      h("span", { class: "day-dots" }, ...items.slice(0, 4).map((p) => h("span", { class: "dot prio-" + p.priority })))));
+  }
+  return h("div", { class: "days", role: "group", "aria-label": "Ближайшие восемь дней" }, ...cells);
+}
+
 export function planView(model) {
   if (!model) return todayView(null);
+  const sent = readSent();
+  const plan = model.plan;
+  const count = (test) => plan.filter(test).length;
   const out = [];
-  const soon = model.plan.filter((i) => i.urgency === "overdue" || i.urgency === "week");
-  if (soon.length) {
-    const high = soon.filter((i) => i.priority === "high").length;
-    out.push(h("p", { class: "plan-summary" },
-      `До конца недели: ${soon.length} ${plural(soon.length, "пункт", "пункта", "пунктов")}` +
-      (high ? `, из них с высоким приоритетом: ${high}.` : ".")));
+
+  out.push(h("div", { class: "stats" },
+    stat(count((i) => i.urgency === "overdue"), "просрочено", count((i) => i.urgency === "overdue") ? "alert" : null),
+    stat(count((i) => i.urgency === "week"), "на этой неделе"),
+    stat(count((i) => i.priority === "high" && (i.urgency === "week" || i.urgency === "overdue")), "из них важных")));
+  out.push(dayStrip(model));
+  out.push(filterBar("Фильтр по приоритету", [
+    ["all", "Все", plan.length],
+    ["high", "Высокий", count((i) => i.priority === "high")],
+    ["medium", "Средний", count((i) => i.priority === "medium")],
+    ["low", "Низкий", count((i) => i.priority === "low")],
+  ], ui.planPriority, (value) => { ui.planPriority = value; }));
+
+  const shown = plan.filter((i) => (ui.planPriority === "all" || i.priority === ui.planPriority)
+    && (!ui.planDate || i.date === ui.planDate));
+  if (ui.planDate) {
+    out.push(h("p", { class: "filter-note" }, `Показан день: ${formatDateRu(ui.planDate)}. `,
+      h("button", { class: "btn-text", type: "button", onclick: () => { ui.planDate = null; rerender(); } }, "Показать все дни")));
   }
   for (const [urgency, title] of URGENCY_SECTIONS) {
-    const items = model.plan.filter((i) => i.urgency === urgency);
+    const items = shown.filter((i) => i.urgency === urgency);
     if (!items.length) continue;
-    out.push(h("h2", null, title, h("span", { class: "count" }, String(items.length))),
-      h("div", { class: "card" }, ...items.map((i) => planRow(model, i))));
+    out.push(h("h2", { class: "section-" + urgency }, title, h("span", { class: "count" }, String(items.length))),
+      h("div", { class: "stack" }, ...items.map((i) => planItem(model, i, sent))));
   }
-  if (!model.plan.length) out.push(h("p", { class: "muted" }, "План пуст."));
+  if (!shown.length) out.push(h("p", { class: "muted" }, plan.length ? "Под выбранный фильтр ничего не попало." : "План пуст."));
   return screen("План", null, ...out);
+}
+
+// ---- curator -------------------------------------------------------------------
+
+export function curatorView(model) {
+  if (!model) return todayView(null);
+  const curator = model.curator;
+  const due = model.plan.filter((i) => (i.urgency === "overdue" || i.urgency === "week") && i.handoff);
+  const sent = readSent();
+  const out = [];
+
+  out.push(h("section", { class: "lead" },
+    h("h2", { class: "lead-headline" }, "Данные вносит куратор"),
+    h("p", { class: "lead-text" }, "Приложение только показывает. Чтобы цифры появились здесь, отправь их куратору: он проверит их, внесёт в репозиторий, обновит комментарии и план."),
+    curator && curator.where ? h("p", { class: "lead-where" }, h("strong", null, "Куда отправлять: "), curator.where) : null,
+    h("ol", { class: "steps" },
+      h("li", null, "Сделай измерение или получи результат."),
+      h("li", null, "Скопируй шаблон, впиши цифры и дату, отправь в чат."),
+      h("li", null, "Куратор ответит, что записано. Обнови приложение."))));
+
+  out.push(h("h2", null, "Ждёт от тебя", h("span", { class: "count" }, String(due.length))));
+  out.push(due.length
+    ? h("div", { class: "stack" }, ...due.map((i) => planItem(model, i, sent)))
+    : h("p", { class: "muted" }, "На этой неделе куратор ничего не ждёт."));
+
+  if (model.routine && model.routine.length) {
+    out.push(heading("По расписанию"));
+    out.push(h("div", { class: "stack" }, ...model.routine.map((r) => h("div", { class: "card pad routine" },
+      h("div", { class: "routine-when" }, r.when),
+      h("div", { class: "plan-title" }, r.title),
+      h("p", { class: "routine-what" }, r.what),
+      r.handoff ? handoffBlock(r.handoff) : null))));
+  }
+
+  out.push(heading("Правила передачи"));
+  out.push(h("div", { class: "card pad" }, h("ul", { class: "rules" },
+    h("li", null, "У каждой цифры должна быть дата измерения."),
+    h("li", null, "Анализы: PDF из лаборатории целиком. Пересказ цифр даёт ошибки."),
+    h("li", null, "Бумажный бланк: фото листа целиком, чтобы были видны дата, единицы и референсы."),
+    h("li", null, "Опросники проходятся прямо в чате: куратор задаёт вопросы и считает баллы."),
+    h("li", null, "Если в цифре не уверен, так и напиши. Куратор её не угадывает."))));
+  return screen("Куратор", null, ...out);
 }
 
 // ---- settings ------------------------------------------------------------------

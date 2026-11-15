@@ -451,7 +451,7 @@ export function buildModel({ profile, goals, catalog, observations, plan: target
     const key = `${groupId}:${state}:${date || ""}`;
     if (!groups.has(key)) {
       const title = def.panel ? (catalog.panels && catalog.panels[def.panel]) || def.panel : def.name;
-      groups.set(key, { key, title, state, date, markerIds: [], priority: "low", effort: null, reason: null });
+      groups.set(key, { key, title, state, date, markerIds: [], priority: "low", effort: null, reason: null, handoff: null });
     }
     const group = groups.get(key);
     group.markerIds.push(def.id);
@@ -460,6 +460,7 @@ export function buildModel({ profile, goals, catalog, observations, plan: target
     if (target) {
       if (group.effort === null) group.effort = nonEmptyText(target.effort);
       if (group.reason === null) group.reason = nonEmptyText(target.reason);
+      if (group.handoff === null) group.handoff = nonEmptyText(target.handoff);
     }
   }
   const plan = [...groups.values()]
@@ -478,5 +479,7 @@ export function buildModel({ profile, goals, catalog, observations, plan: target
     });
 
   const domainGroups = Array.isArray(goals.groups) ? goals.groups : [];
-  return { mission: goals.mission, groups: domainGroups, today, lastObservationDate, domains, markers, plan };
+  const routine = targets && Array.isArray(targets.routine) ? targets.routine : [];
+  const curator = targets && targets.curator && typeof targets.curator === "object" ? targets.curator : null;
+  return { mission: goals.mission, groups: domainGroups, today, lastObservationDate, domains, markers, plan, routine, curator };
 }

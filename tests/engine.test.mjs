@@ -555,3 +555,18 @@ test("buildModel carries domain groups through to the model", () => {
   assert.deepEqual(model.groups.map((g) => g.id), ["body", "lifestyle"]);
   assert.deepEqual(model.domains.map((d) => d.group), ["body", "lifestyle", null]);
 });
+
+test("buildModel: handoff, routine and curator come from the plan targets", () => {
+  const targets = {
+    items: { vitd: { due: "2026-12-01", priority: "low", handoff: "Send the PDF" } },
+    routine: [{ title: "Weekly", when: "Sunday", what: "Weight" }],
+    curator: { name: "Curator", where: "Chat" },
+  };
+  const m = buildModel({ profile, goals, catalog, plan: targets, today: "2026-11-15", observations: [] });
+  assert.equal(m.plan.find((p) => p.markerIds[0] === "vitd").handoff, "Send the PDF");
+  assert.equal(m.plan.find((p) => p.markerIds[0] === "mystery").handoff, null);
+  assert.deepEqual(m.routine, targets.routine);
+  assert.deepEqual(m.curator, targets.curator);
+  const bare = buildModel({ profile, goals, catalog, today: "2026-11-15", observations: [] });
+  assert.deepEqual([bare.routine, bare.curator], [[], null]);
+});

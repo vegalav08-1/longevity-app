@@ -123,11 +123,19 @@ plan.json = {
   written   "YYYY-MM-DD"
   author    string
   items     {[markerId]: {due: "YYYY-MM-DD", priority: "high" | "medium" | "low",
-                          effort?: string, reason?: string}}
+                          effort?: string, reason?: string, handoff?: string}}
+  routine?  [{title, when, what, handoff?}]     recurring data the owner sends
+  curator?  {name, where}                        who enters the data and where to send it
 }
 ```
 
-`effort` says what it takes ("Опросник, 5 минут"), `reason` says why now.
+`effort` says what it takes ("Опросник, 5 минут"), `reason` says why now,
+`handoff` is the message the owner sends to the curator, ready to copy.
+
+The app is read-only. Data enters the repository through the curator: a
+language-model chat with access to the data repository. The owner sends values
+or documents there; the curator validates them, writes observations, rewrites
+the commentary and the plan. `routine` lists what is sent on a schedule.
 A marker that already has data ignores `due` (its date comes from
 `recheck_months`) but keeps `priority`, `effort` and `reason`.
 
@@ -191,6 +199,8 @@ Model = {
   domains: DomainState[],       // goals.json order
   markers: {[id]: MarkerState}, // every MarkerDef, with or without data
   plan: PlanItem[],
+  routine,                      // plan.json routine or []
+  curator,                      // plan.json curator or null
 }
 
 Point = {date, value, comparator?, ref: {low?, high?} | null, status: Status,
@@ -216,7 +226,8 @@ DomainState = {
 }
 
 PlanItem = {key, title, state, date: string | null, markerIds: string[],
-            priority, urgency, daysLeft: number | null, effort: string | null, reason: string | null}
+            priority, urgency, daysLeft: number | null,
+            effort: string | null, reason: string | null, handoff: string | null}
 ```
 
 Rules:
@@ -241,7 +252,7 @@ Rules:
 - `priority`: `plan.items[id].priority` when present; otherwise `"high"` for
   status out, `"medium"` for watch and for a missing marker, `"low"` for the rest.
 - `plan`: markers grouped by `(panel, due.state, due.date)`; markers without a
-  panel stand alone. Group title = panel title, or the marker name. Priority = highest in the group, effort and reason = the
+  panel stand alone. Group title = panel title, or the marker name. Priority = highest in the group, effort, reason and handoff = the
   first non-empty among its markers in catalog order. State `"none"` is excluded.
 - `daysLeft` = whole days from today to the date (negative when past), null
   without a date. `urgency`: `"overdue"` when daysLeft < 0, `"week"` for 0..7,
@@ -280,8 +291,8 @@ last 30 years and 404 is ignored. Local mode never touches settings or cache.
 ## Interface
 
 Routes (hash): `#/` today, `#/domain/<id>` (the today screen with that system
-opened and scrolled into view), `#/marker/<id>`, `#/plan`, `#/settings`. Bottom
-tab bar: «Сегодня», «План», «Настройки».
+opened and scrolled into view), `#/marker/<id>`, `#/plan`, `#/curator`, `#/settings`. Bottom
+tab bar: «Сегодня», «План», «Куратор», «Настройки».
 
 The today screen is a three-level disclosure built from `<details>` elements.
 Nothing below the first level is in the DOM until it is opened, and the set of
@@ -304,9 +315,17 @@ open sections survives re-renders and a visit to a marker page.
 - Marker page: value, status, range bar with numeric bounds, `basis`,
   commentary, `why`, history chart, table of all points, related markers,
   next recheck date or `recheck_note`.
-- Plan: items in deadline order under «Просрочено», «На этой неделе», «В этом
-  месяце», «Позже», «Без срока». Each item shows its date, the time left, its
-  priority (three bars and a word), what it takes and why now.
+- Plan: three figures (overdue, this week, important among them), a strip of
+  the next eight days where a day with items is a filter, a priority filter,
+  then items in deadline order under «Просрочено», «На этой неделе», «В этом
+  месяце», «Позже», «Без срока». An item is a card: the deadline as a calendar
+  leaf tinted by urgency, the title, priority and time-left chips, what it
+  takes; its left edge carries the priority. Opened, it shows the reason, the
+  message for the curator with a copy button, a "sent to the curator" mark kept
+  on the device, and links to its markers.
+- Curator: where data goes and how, the items the curator is waiting for this
+  week, the schedule from `plan.routine`, the rules for handing data over.
+- Today also has a filter of systems (all, flagged, without data).
 - Settings: repository, token, load, refresh, delete data from this device.
 
 Two surfaces, two meanings: white is data, the pale blue block is the model's

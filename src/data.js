@@ -6,6 +6,8 @@ import { parseJsonl } from "./engine.js";
 
 const SETTINGS_KEY = "longevity.settings.v1";
 const CACHE_KEY = "longevity.cache.v1";
+/** Interface state kept by the views (e.g. which plan items the owner marked as sent). */
+export const UI_STATE_KEY = "longevity.ui.v1";
 const API_ROOT = "https://api.github.com/repos/";
 const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const YEAR_FILE_PATTERN = /^(\d{4})\.jsonl$/;
@@ -96,10 +98,11 @@ export function saveSettings({ repo, token }) {
   }
 }
 
-/** Removes settings and cache from this device. */
+/** Removes settings, cache and interface state from this device. */
 export function clearDevice() {
   storageRemove(SETTINGS_KEY);
   storageRemove(CACHE_KEY);
+  storageRemove(UI_STATE_KEY);
 }
 
 function validBase(raw) {
