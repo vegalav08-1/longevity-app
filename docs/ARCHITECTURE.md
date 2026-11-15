@@ -35,9 +35,10 @@ token that the owner pastes once on the device. There is no backend.
 
 ```
 profile.json                  {version, birth_date: "YYYY-MM-DD", sex}
-catalog/goals.json            {version, mission, domains: [{id, name, goal}]}
+catalog/goals.json            {version, mission, groups: [{id, name}], domains: [{id, name, goal, group}]}
 catalog/markers.json          {version, panels: {panelId: title}, markers: [MarkerDef]}
 observations/YYYY.jsonl       one Observation per line, file chosen by the year of `date`
+commentary.json              optional, see Commentary
 raw/                          source documents, named YYYY-MM-DD_<lab>_<order>.<ext>
 tools/validate.mjs            `node tools/validate.mjs` must pass before every commit
 ```
@@ -82,6 +83,31 @@ note        optional string
 
 The reference range printed on the report travels with the observation because
 ranges differ between labs and methods. `MarkerDef.ref` is only a fallback.
+
+### Commentary
+
+Interpretation written by a language model at the moment data is added, never
+at display time. The app shows it next to the numbers; the numbers and statuses
+never depend on it.
+
+```
+commentary.json = {
+  version,
+  as_of      "YYYY-MM-DD"  date of the newest observation the text accounts for
+  written    "YYYY-MM-DD"
+  author     string, the model that wrote it
+  summary    {headline, text}
+  domains    {[domainId]: {headline, text}}
+  markers    {[markerId]: text}
+}
+```
+
+Rules for the text: conclusion first; about this person's values and their
+dynamics, not a textbook description of the marker (that is `MarkerDef.why`);
+no drug names, doses or treatment regimens; say what a result does not show.
+`headline` up to 8 words. Marker text up to 3 sentences, domain text up to 4.
+A marker with nothing specific to say has no entry. A comment is shown as
+outdated when the marker has an observation newer than `as_of`.
 
 ## Engine contract (`src/engine.js`)
 
@@ -137,6 +163,7 @@ Reference values for tests (synthetic inputs):
 ```js
 Model = {
   mission,                      // goals.mission
+  groups,                       // goals.groups or []
   today,                        // "YYYY-MM-DD" as passed in
   lastObservationDate,          // max observation date or null
   domains: DomainState[],       // goals.json order
@@ -153,13 +180,13 @@ MarkerState = {
   latest: Point | null,
   status: Status | "nodata",    // status of latest
   ref,                          // effective ref of latest, or def.ref, or null
-  position: number | null,      // 0..1 for the calibration strip, see below
+  position: number | null,      // 0..1 on the range bar, see below
   due: {state: "ok" | "soon" | "overdue" | "missing" | "none", date: string | null},
   related: string[],            // derived → its inputs; measured → derived markers using it
 }
 
 DomainState = {
-  id, name, goal,
+  id, name, goal, group,        // group: id from goals.groups or null
   markerIds: string[],          // catalog order
   status: Status | "nodata",    // worst over primary markers: out > watch > optimal
   counts: {optimal, watch, out, unrated, nodata},   // primary markers only
@@ -201,7 +228,7 @@ getSource() -> Source | null                // local mode if ?base= is valid, el
 Source = {mode: "local", base} | {mode: "github", repo, token}
 readCache() -> Bundle | null                // github mode only
 loadBundle(source) -> Promise<Bundle>       // fetches; in github mode also writes the cache
-Bundle = {profile, goals, catalog, observations: Observation[], fetchedAt: ISO string}
+Bundle = {profile, goals, catalog, observations: Observation[], commentary: object | null, fetchedAt: ISO string}
 class DataError extends Error { code: "auth" | "not_found" | "network" | "format" }
 ```
 
@@ -220,19 +247,32 @@ last 30 years and 404 is ignored. Local mode never touches settings or cache.
 
 ## Interface
 
-Routes (hash): `#/` today, `#/domain/<id>`, `#/marker/<id>`, `#/plan`,
-`#/settings`. Bottom tab bar: «Сегодня», «План», «Настройки».
+Routes (hash): `#/` today, `#/domain/<id>` (the today screen with that system
+opened and scrolled into view), `#/marker/<id>`, `#/plan`, `#/settings`. Bottom
+tab bar: «Сегодня», «План», «Настройки».
 
-- Today: mission line, date of the latest data, one row per domain (name,
-  status word with a shape, calibration strip, "N из M в норме"), then the first
-  plan items.
-- Domain: goal, primary markers (name, value, date, range bar), secondary
-  markers inside a collapsed block, unmeasured markers with their `why`.
-- Marker: value, status, range bar with numeric bounds, `basis`, `why`, history
-  chart, table of all points (date, value, reference, source, verified),
-  related markers, next recheck date or `recheck_note`.
+The today screen is a three-level disclosure built from `<details>` elements.
+Nothing below the first level is in the DOM until it is opened, and the set of
+open sections survives re-renders and a visit to a marker page.
+
+1. Lead block: the commentary summary (headline, text), a tally of domain
+   statuses, the author and date of the commentary.
+2. One card per domain, listed under its group from `goals.groups`, problems
+   first. Collapsed: name, status, the commentary headline, a tally of marker
+   statuses. The left edge of the card carries the status colour.
+3. Opened domain: its commentary, then markers in groups «Требуют внимания»,
+   «В норме», «Не измерено», and a nested «Дополнительные показатели».
+4. Opened marker: status and date, range bar, target, its commentary, `why`,
+   the next recheck, and a link to the marker page.
+
+- Marker page: value, status, range bar with numeric bounds, `basis`,
+  commentary, `why`, history chart, table of all points, related markers,
+  next recheck date or `recheck_note`.
 - Plan: groups «Просрочено», «Скоро», «Не измерено», «По графику».
 - Settings: repository, token, load, refresh, delete data from this device.
+
+Two surfaces, two meanings: white is data, the pale blue block is the model's
+interpretation. That distinction is never broken.
 
 ### Design tokens
 
@@ -253,10 +293,6 @@ Headings: `ui-serif, "New York", Georgia, serif`, weight 600. Body:
 Status is never colour alone: each status has a shape (optimal filled circle,
 watch diamond, out triangle, no data hollow circle) and a word («В норме»,
 «Внимание», «Вне нормы», «Нет данных», «Без нормы»).
-
-The calibration strip is the signature element: one horizontal track per
-domain, split into three zones (below reference, reference, above reference),
-with every primary marker of the domain drawn at `MarkerState.position`.
 
 ## Development
 

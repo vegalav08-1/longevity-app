@@ -131,7 +131,8 @@ export function getSource() {
 }
 
 /**
- * Reads the last bundle stored by a github-mode load.
+ * Reads the last bundle stored by a github-mode load. A cache written before
+ * `commentary` was added is returned with `commentary: null`.
  * @returns {object | null} Bundle or null
  */
 export function readCache() {
@@ -140,6 +141,8 @@ export function readCache() {
   try {
     const value = JSON.parse(raw);
     if (value && value.profile && value.goals && value.catalog && Array.isArray(value.observations)) {
+      // caches written before commentary existed have no such key
+      if (!("commentary" in value)) return { ...value, commentary: null };
       return value;
     }
   } catch {
@@ -184,6 +187,26 @@ function parseJson(text, label) {
   }
 }
 
+// commentary.json is optional: 404 means "no commentary"; auth and network failures propagate.
+function optional(promise) {
+  return promise.catch((error) => {
+    if (error instanceof DataError && error.missing) return null;
+    throw error;
+  });
+}
+
+// Commentary is interpretation shown next to the numbers. A broken file must
+// not take the numbers down with it, so anything unusable counts as "none".
+function parseCommentary(text) {
+  if (text === null) return null;
+  try {
+    const value = JSON.parse(text);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseObservations(text, label) {
   try {
     return parseJsonl(text);
@@ -207,16 +230,18 @@ async function loadGithub(source) {
     throw error;
   });
 
-  const [profileText, goalsText, markersText, listingText] = await Promise.all([
+  const [profileText, goalsText, markersText, listingText, commentaryText] = await Promise.all([
     getFile("profile.json"),
     getFile("catalog/goals.json"),
     getFile("catalog/markers.json"),
     listing,
+    optional(getFile("commentary.json")),
   ]);
 
   const profile = parseJson(profileText, "profile.json");
   const goals = parseJson(goalsText, "catalog/goals.json");
   const catalog = parseJson(markersText, "catalog/markers.json");
+  const commentary = parseCommentary(commentaryText);
 
   let names = [];
   if (listingText !== null) {
@@ -236,7 +261,7 @@ async function loadGithub(source) {
     observations.push(...parseObservations(text, `observations/${names[index]}`));
   });
 
-  const bundle = { profile, goals, catalog, observations, fetchedAt: new Date().toISOString() };
+  const bundle = { profile, goals, catalog, observations, commentary, fetchedAt: new Date().toISOString() };
   writeCache(bundle);
   return bundle;
 }
@@ -260,16 +285,18 @@ async function loadLocal(source) {
     ),
   );
 
-  const [profileText, goalsText, markersText, found] = await Promise.all([
+  const [profileText, goalsText, markersText, commentaryText, found] = await Promise.all([
     getFile("profile.json"),
     getFile("catalog/goals.json"),
     getFile("catalog/markers.json"),
+    optional(getFile("commentary.json")),
     Promise.all(probes),
   ]);
 
   const profile = parseJson(profileText, "profile.json");
   const goals = parseJson(goalsText, "catalog/goals.json");
   const catalog = parseJson(markersText, "catalog/markers.json");
+  const commentary = parseCommentary(commentaryText);
 
   const observations = [];
   found
@@ -279,14 +306,15 @@ async function loadLocal(source) {
       observations.push(...parseObservations(text, `observations/${year}.jsonl`));
     });
 
-  return { profile, goals, catalog, observations, fetchedAt: new Date().toISOString() };
+  return { profile, goals, catalog, observations, commentary, fetchedAt: new Date().toISOString() };
 }
 
 /**
- * Loads profile, catalog and all observations. In github mode the result is also written to the cache;
+ * Loads profile, catalog, all observations and the optional commentary.json (a 404 or an unusable
+ * file gives `commentary: null`; auth and network failures are errors like for the other files). In github mode the result is also written to the cache;
  * local mode never touches settings or cache.
  * @param {{mode: "local", base: string} | {mode: "github", repo: string, token: string}} source
- * @returns {Promise<{profile: object, goals: object, catalog: object, observations: object[], fetchedAt: string}>}
+ * @returns {Promise<{profile: object, goals: object, catalog: object, observations: object[], commentary: object|null, fetchedAt: string}>}
  * @throws {DataError}
  */
 export async function loadBundle(source) {

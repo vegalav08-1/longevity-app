@@ -1,4 +1,4 @@
-// SVG builders: calibration strip, range bar, history chart.
+// SVG builders: status marks, range bar, history chart.
 import { formatValue, positionFor } from "./engine.js";
 import { h, svg, formatDateRu, valueText } from "./dom.js";
 
@@ -56,26 +56,7 @@ function trackParts(y, th) {
   ];
 }
 
-// ---- 1. calibration strip ---------------------------------------------------
-
-export function calibrationStrip(markerStates) {
-  const H = 28, y = 8, th = 12, cy = y + th / 2;
-  const marks = markerStates
-    .filter((m) => m && m.latest && m.position != null)
-    .sort((a, b) => (SEVERITY[a.status] ?? 0) - (SEVERITY[b.status] ?? 0));
-  const n = (s) => marks.filter((m) => m.status === s).length;
-  const label = marks.length
-    ? `Показателей на шкале: ${marks.length}. В норме: ${n("optimal")}, внимание: ${n("watch")}, вне нормы: ${n("out")}, без нормы: ${n("unrated")}.`
-    : "Нет показателей на шкале.";
-  const root = svg("svg", {
-    class: "strip", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": label, focusable: "false",
-  });
-  root.append(...trackParts(y, th));
-  for (const m of marks) root.append(mark(m.status, m.position * W, cy, 5));
-  return root;
-}
-
-// ---- 2. range bar -------------------------------------------------------------
+// ---- range bar -------------------------------------------------------------
 
 export function rangeBar(ms) {
   const ref = ms.ref;
@@ -99,8 +80,10 @@ export function rangeBar(ms) {
   if (ms.latest && ms.position != null) root.append(mark(ms.status, ms.position * W, cy, 5));
 
   const labels = h("div", { class: "rb-labels", "aria-hidden": "true" });
-  if (ref.low != null) {
-    const l = h("span", { class: "rb-label" }, formatValue(ref.low, dec));
+  // With only an upper bound the left tick stands for zero (see positionFor).
+  const lowLabel = ref.low != null ? formatValue(ref.low, dec) : ref.high != null ? "0" : null;
+  if (lowLabel != null) {
+    const l = h("span", { class: "rb-label" }, lowLabel);
     l.style.left = "25%";
     labels.append(l);
   }
@@ -112,7 +95,7 @@ export function rangeBar(ms) {
   return h("div", { class: "rangebar" }, root, labels);
 }
 
-// ---- 3. history chart ---------------------------------------------------------
+// ---- history chart ---------------------------------------------------------
 
 export function historyChart(ms) {
   const pts = ms.series || [];

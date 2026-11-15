@@ -49,6 +49,7 @@ function githubRoutes(extra = {}) {
     [`${API}profile.json`]: reply(200, profile),
     [`${API}catalog/goals.json`]: reply(200, goals),
     [`${API}catalog/markers.json`]: reply(200, catalog),
+    [`${API}commentary.json`]: reply(404, { message: "Not Found" }),
     [`${API}observations`]: reply(200, [
       { name: "2023.jsonl", type: "file" },
       { name: "2024.jsonl", type: "file" },
@@ -133,6 +134,7 @@ test("github mode sends the right URLs and headers and concatenates observations
   assert.deepEqual(urls, [
     `${API}catalog/goals.json`,
     `${API}catalog/markers.json`,
+    `${API}commentary.json`,
     `${API}observations`,
     `${API}observations/2023.jsonl`,
     `${API}observations/2024.jsonl`,
@@ -226,7 +228,7 @@ test("local mode probes year files, ignores 404 and never touches storage", asyn
     bundle.observations.map((o) => o.value),
     [7, 9],
   );
-  assert.equal(calls.length, 3 + 30);
+  assert.equal(calls.length, 4 + 30);
   assert.ok(calls.every((c) => c.url.startsWith(base + "/")));
   assert.ok(calls.every((c) => !c.init?.headers?.Authorization));
   assert.equal(localStorage.getItem(CACHE_KEY), null);
@@ -239,4 +241,68 @@ test("local mode: 404 on profile.json maps to not_found", async () => {
     loadBundle({ mode: "local", base: "/synthetic-data" }),
     (e) => e instanceof DataError && e.code === "not_found",
   );
+});
+
+const commentary = {
+  version: 1,
+  as_of: "2024-06-01",
+  written: "2024-06-02",
+  author: "synthetic-model",
+  summary: { headline: "Synthetic headline", text: "Synthetic text." },
+  domains: { d1: { headline: "Domain headline", text: "Domain text." } },
+  markers: { m1: "Marker note." },
+};
+
+test("github mode returns and caches commentary when present", async () => {
+  stubFetch(githubRoutes({ [`${API}commentary.json`]: reply(200, commentary) }));
+  const bundle = await loadBundle(githubSource);
+  assert.deepEqual(bundle.commentary, commentary);
+  assert.deepEqual(readCache().commentary, commentary);
+  const call = calls.find((c) => c.url === `${API}commentary.json`);
+  assert.deepEqual(Object.keys(call.init.headers).sort(), ["Accept", "Authorization"]);
+  assert.equal(call.init.headers.Accept, "application/vnd.github.raw+json");
+});
+
+test("github mode: 404 on commentary.json gives commentary null", async () => {
+  stubFetch(githubRoutes());
+  const bundle = await loadBundle(githubSource);
+  assert.equal(bundle.commentary, null);
+  assert.equal(readCache().commentary, null);
+});
+
+test("github mode: an unusable commentary.json does not block the data", async () => {
+  for (const body of ["{not json", "[1, 2]", "null"]) {
+    stubFetch(githubRoutes({ [`${API}commentary.json`]: reply(200, body) }));
+    const bundle = await loadBundle(githubSource);
+    assert.equal(bundle.commentary, null);
+    assert.equal(bundle.observations.length > 0, true);
+  }
+});
+
+test("github mode: 401 on commentary.json maps to auth", async () => {
+  stubFetch(githubRoutes({ [`${API}commentary.json`]: reply(401, "") }));
+  await assert.rejects(loadBundle(githubSource), (e) => e instanceof DataError && e.code === "auth");
+});
+
+test("local mode: commentary present is returned, 404 and unusable files give null", async () => {
+  const base = "/synthetic-data";
+  const routes = {
+    [`${base}/profile.json`]: reply(200, profile),
+    [`${base}/catalog/goals.json`]: reply(200, goals),
+    [`${base}/catalog/markers.json`]: reply(200, catalog),
+  };
+  stubFetch({ ...routes, [`${base}/commentary.json`]: reply(200, commentary) });
+  assert.deepEqual((await loadBundle({ mode: "local", base })).commentary, commentary);
+
+  stubFetch(routes);
+  assert.equal((await loadBundle({ mode: "local", base })).commentary, null);
+
+  stubFetch({ ...routes, [`${base}/commentary.json`]: reply(200, "[oops") });
+  assert.equal((await loadBundle({ mode: "local", base })).commentary, null);
+});
+
+test("readCache fills commentary null for a cache written before the key existed", () => {
+  const old = { profile, goals, catalog, observations: [], fetchedAt: "2024-01-01T00:00:00.000Z" };
+  localStorage.setItem(CACHE_KEY, JSON.stringify(old));
+  assert.deepEqual(readCache(), { ...old, commentary: null });
 });

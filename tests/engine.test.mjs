@@ -492,3 +492,23 @@ test("buildModel: plan sorts by date then title inside a state", () => {
     ["Charlie", "missing"],
   ]);
 });
+
+test("buildModel carries domain groups through to the model", () => {
+  const model = buildModel({
+    profile: { birth_date: "1990-01-01", sex: "male" },
+    goals: {
+      mission: "m",
+      groups: [{ id: "body", name: "Body" }, { id: "lifestyle", name: "Lifestyle" }],
+      domains: [
+        { id: "a", name: "A", goal: "g", group: "body" },
+        { id: "b", name: "B", goal: "g", group: "lifestyle" },
+        { id: "c", name: "C", goal: "g" },
+      ],
+    },
+    catalog: { panels: {}, markers: [] },
+    observations: [],
+    today: "2030-01-01",
+  });
+  assert.deepEqual(model.groups.map((g) => g.id), ["body", "lifestyle"]);
+  assert.deepEqual(model.domains.map((d) => d.group), ["body", "lifestyle", null]);
+});

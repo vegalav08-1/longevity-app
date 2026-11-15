@@ -2,7 +2,7 @@ import { getSource, getSettings, saveSettings, clearDevice, readCache, loadBundl
 import { buildModel } from "./engine.js";
 import { h } from "./dom.js";
 import { statusIcon } from "./charts.js";
-import { todayView, domainView, markerView, planView, settingsView } from "./views.js";
+import { todayView, markerView, planView, settingsView, openDomain } from "./views.js";
 
 const $view = document.getElementById("view");
 const $title = document.getElementById("title");
@@ -23,6 +23,8 @@ function applyBundle(bundle) {
     profile: bundle.profile, goals: bundle.goals, catalog: bundle.catalog,
     observations: bundle.observations, today: todayStr(),
   });
+  // Interpretation travels next to the model; statuses never depend on it.
+  state.model.commentary = bundle.commentary || null;
   state.fetchedAt = bundle.fetchedAt || null;
 }
 
@@ -40,7 +42,7 @@ function parseRoute() {
 
 function placeholder() {
   const msg = state.loading ? "Загружаю данные…" : state.error ? state.error.message : "Данные не загружены.";
-  return h("div", { class: "screen", "data-title": "Сегодня" }, h("div", { class: "block pad" }, h("p", { role: "status" }, msg),
+  return h("div", { class: "screen", "data-title": "Сегодня" }, h("div", { class: "card pad" }, h("p", { role: "status" }, msg),
     state.error && state.error.code === "auth" ? h("a", { href: "#/settings" }, "Открыть настройки") : null));
 }
 
@@ -63,7 +65,8 @@ function viewFor(route) {
     return p;
   }
   switch (route.name) {
-    case "domain": return domainView(state.model, route.id);
+    // A system has no page of its own: it is a section of the today screen.
+    case "domain": openDomain(route.id); return todayView(state.model);
     case "marker": return markerView(state.model, route.id);
     case "plan": return planView(state.model);
     default: return todayView(state.model);
@@ -97,7 +100,9 @@ function render(fresh) {
     else a.removeAttribute("aria-current");
   }
   if (fresh) {
-    window.scrollTo(0, 0);
+    const target = route.name === "domain" ? document.getElementById("domain-" + route.id) : null;
+    if (target) target.scrollIntoView({ block: "start" });
+    else window.scrollTo(0, 0);
     $title.focus({ preventScroll: true });
   }
 }

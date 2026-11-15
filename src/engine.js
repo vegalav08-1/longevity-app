@@ -400,7 +400,7 @@ export function buildModel({ profile, goals, catalog, observations, today }) {
     else if (counts.optimal > 0) status = "optimal";
     else if (counts.unrated > 0) status = "unrated";
     else status = "nodata";
-    return { id: domain.id, name: domain.name, goal: domain.goal, markerIds, status, counts };
+    return { id: domain.id, name: domain.name, goal: domain.goal, group: domain.group || null, markerIds, status, counts };
   });
 
   // 5. Plan.
@@ -429,5 +429,6 @@ export function buildModel({ profile, goals, catalog, observations, today }) {
     return a.title < b.title ? -1 : a.title > b.title ? 1 : 0;
   });
 
-  return { mission: goals.mission, today, lastObservationDate, domains, markers, plan };
+  const domainGroups = Array.isArray(goals.groups) ? goals.groups : [];
+  return { mission: goals.mission, groups: domainGroups, today, lastObservationDate, domains, markers, plan };
 }
