@@ -120,7 +120,7 @@ function note(commentary, text, stale) {
     h("div", { class: "note-label" }, "Комментарий"),
     h("p", null, text),
     stale ? h("p", { class: "note-stale" },
-      `Написан по данным на ${formatDateRu(commentary.as_of)}. С тех пор появились новые измерения.`) : null);
+      `Написан по данным на ${formatDateRu(commentary.as_of).replace(/\.$/, "")}. С тех пор появились новые измерения.`) : null);
 }
 
 const newerThan = (ms, commentary) => !!(ms && ms.latest && commentary.as_of && ms.latest.date > commentary.as_of);
@@ -167,12 +167,22 @@ function recheckText(ms) {
   return ms.def.recheck_note || "Регулярная пересдача не требуется.";
 }
 
+const HISTORY_ROWS = 12;
+
+function historyTable(rows) {
+  return h("table", null,
+    h("thead", null, h("tr", null,
+      h("th", null, "Дата"), h("th", null, "Значение"), h("th", null, "Референс"), h("th", null, "Данные"))),
+    h("tbody", null, ...rows));
+}
+
 function markerBody(model, ms) {
   const def = ms.def;
   const body = h("div", { class: "marker-body" });
   if (ms.latest) {
     body.append(h("div", { class: "m-status" }, chip(ms.status),
-      h("span", { class: "muted" }, formatDateRu(ms.latest.date))));
+      h("span", { class: "muted" }, formatDateRu(ms.latest.date)),
+      ms.stale ? h("span", { class: "stale-tag" }, "давно не обновлялось") : null));
     body.append(rangeBar(ms));
     // The earlier point, so the history is visible without opening the marker screen.
     const prev = ms.series.length > 1 ? ms.series[ms.series.length - 2] : null;
@@ -197,7 +207,7 @@ function markerItem(model, ms) {
   const def = ms.def;
   return disclosure("m:" + def.id, { class: "marker" }, [
     h("div", { class: "m-line" },
-      statusIcon(ms.latest ? ms.status : "nodata"),
+      statusIcon(ms.latest && !ms.stale ? ms.status : "nodata"),
       h("span", { class: "m-name" }, def.name,
         ms.latest && ms.latest.derived ? h("span", { class: "suffix" }, "расчёт") : null),
       ms.latest
@@ -221,9 +231,10 @@ function group(model, title, status, items) {
 function domainBody(model, d) {
   const all = d.markerIds.map((id) => model.markers[id]).filter(Boolean);
   const primary = all.filter((m) => m.def.role === "primary");
-  const flagged = primary.filter((m) => m.latest && (m.status === "out" || m.status === "watch"))
+  const flagged = primary.filter((m) => m.latest && !m.stale && (m.status === "out" || m.status === "watch"))
     .sort((a, b) => (a.status === b.status ? 0 : a.status === "out" ? -1 : 1));
-  const fine = primary.filter((m) => m.latest && !flagged.includes(m));
+  const fine = primary.filter((m) => m.latest && !m.stale && !flagged.includes(m));
+  const old = primary.filter((m) => m.latest && m.stale);
   const secondary = all.filter((m) => m.def.role !== "primary" && m.latest);
   const unmeasured = all.filter((m) => !m.latest && m.def.kind !== "derived");
 
@@ -234,6 +245,7 @@ function domainBody(model, d) {
   body.append(
     ...group(model, "Требуют внимания", flagged.some((m) => m.status === "out") ? "out" : "watch", flagged),
     ...group(model, "В норме", "optimal", fine),
+    ...group(model, "Давно не обновлялись", "nodata", old),
     ...group(model, "Не измерено", "nodata", unmeasured));
   if (secondary.length) {
     body.append(disclosure("s:" + d.id, { class: "subgroup" }, [
@@ -494,7 +506,8 @@ export function markerView(model, id) {
     h("div", { class: "big" },
       h("span", { class: "big-value" }, formatValue(ms.latest.value, dec, ms.latest.comparator)),
       def.unit_label ? h("span", { class: "big-unit" }, def.unit_label) : null),
-    h("div", { class: "m-status" }, chip(ms.status), h("span", { class: "muted" }, formatDateRu(ms.latest.date))),
+    h("div", { class: "m-status" }, chip(ms.status), h("span", { class: "muted" }, formatDateRu(ms.latest.date)),
+      ms.stale ? h("span", { class: "stale-tag" }, "давно не обновлялось") : null),
     rangeBar(ms));
   const goal = goalText(def);
   if (goal) head.append(h("p", { class: "goal-line" }, goal));
@@ -513,10 +526,13 @@ export function markerView(model, id) {
     h("div", { class: "card pad" },
       historyChart(ms),
       h("div", { class: "table-wrap" },
-        h("table", null,
-          h("thead", null, h("tr", null,
-            h("th", null, "Дата"), h("th", null, "Значение"), h("th", null, "Референс"), h("th", null, "Данные"))),
-          h("tbody", null, ...rows)))));
+        historyTable(rows.slice(0, HISTORY_ROWS))),
+      rows.length > HISTORY_ROWS
+        ? disclosure("h:" + def.id, { class: "subgroup" }, [
+          h("span", null, "Более ранние значения"),
+          h("span", { class: "count" }, String(rows.length - HISTORY_ROWS)),
+        ], () => h("div", { class: "table-wrap" }, historyTable(rows.slice(HISTORY_ROWS))))
+        : null));
 
   const related = (ms.related || []).map((rid) => model.markers[rid]).filter(Boolean);
   if (related.length) {

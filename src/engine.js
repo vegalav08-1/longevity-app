@@ -411,6 +411,14 @@ export function buildModel({ profile, goals, catalog, observations, plan: target
     }
   }
 
+  // A value that was not renewed for long is history, not the current state.
+  // Limit: twice the recheck interval but at least 6 months; 24 months without an interval.
+  const isStale = (def, latest) => {
+    if (!latest || def.kind === "derived") return false;
+    const months = isNum(def.recheck_months) && def.recheck_months > 0 ? Math.max(def.recheck_months * 2, 6) : 24;
+    return addMonths(latest.date, months) < today;
+  };
+
   const markers = {};
   for (const def of defs) {
     const series = [...byMarker.get(def.id).values()].sort((a, b) =>
@@ -425,6 +433,7 @@ export function buildModel({ profile, goals, catalog, observations, plan: target
       series,
       latest,
       status,
+      stale: isStale(def, latest),
       ref,
       position: latest ? positionFor(latest.value, ref) : null,
       due: computeDue(def, latest, today, target),
@@ -440,7 +449,7 @@ export function buildModel({ profile, goals, catalog, observations, plan: target
     for (const id of markerIds) {
       const state = markers[id];
       if (state.def.role !== "primary") continue;
-      counts[state.status] += 1;
+      counts[state.stale ? "nodata" : state.status] += 1;
     }
     let status;
     if (counts.out > 0) status = "out";

@@ -404,6 +404,11 @@ Routes (hash): `#/` today, `#/domain/<id>` (the today screen with that system
 opened and scrolled into view), `#/marker/<id>`, `#/plan`, `#/curator`, `#/settings`. Bottom
 tab bar: «Сегодня», «План», «Куратор», «Настройки».
 
+A marker whose latest value is older than twice its recheck interval (at least
+6 months; 24 months when it has no interval) is `stale`: it keeps its status and
+history, is listed under «Давно не обновлялись», and counts as not measured for
+the domain status. Derived markers are never stale on their own.
+
 An opened marker row with two or more points shows the previous value and its
 date («Было: …»), so history is visible before the marker screen.
 

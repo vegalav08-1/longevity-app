@@ -291,7 +291,10 @@ export function historyChart(ms) {
   }
   // marks, worst on top
   const order = pts.map((p, i) => i).sort((a, b) => (SEVERITY[pts[a].status] ?? 0) - (SEVERITY[pts[b].status] ?? 0));
-  for (const i of order) root.append(mark(pts[i].status, coords[i][0], coords[i][1], 5));
+  // A long series (monthly values over years) is a line; only the latest point gets a mark.
+  const dense = pts.length > 24;
+  if (dense) root.append(mark(pts[pts.length - 1].status, coords[pts.length - 1][0], coords[pts.length - 1][1], 5));
+  else for (const i of order) root.append(mark(pts[i].status, coords[i][0], coords[i][1], 5));
 
   // tooltip + hit targets
   const tip = h("div", { class: "tooltip", hidden: true, role: "status" });
@@ -307,7 +310,20 @@ export function historyChart(ms) {
     const shiftY = y < 60 ? "14px" : "calc(-100% - 14px)";
     tip.style.transform = `translate(${shiftX}, ${shiftY})`;
   };
-  pts.forEach((p, i) => {
+  if (dense) {
+    // one target for the whole plot: a tap picks the nearest point in time
+    const area = svg("rect", { class: "hit", x: plotL, y: plotT, width: plotR - plotL, height: plotB - plotT });
+    area.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const box = root.getBoundingClientRect();
+      const x = ((e.clientX - box.left) / box.width) * W;
+      let best = 0;
+      for (let i = 1; i < coords.length; i++) if (Math.abs(coords[i][0] - x) < Math.abs(coords[best][0] - x)) best = i;
+      show(best);
+    });
+    root.append(area);
+  }
+  if (!dense) pts.forEach((p, i) => {
     const hit = svg("circle", {
       class: "hit", cx: coords[i][0], cy: coords[i][1], r: 26, tabindex: 0, role: "button",
       "aria-label": `${formatDateRu(p.date)}: ${valueText(p, def)}`,

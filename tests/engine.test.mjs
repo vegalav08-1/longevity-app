@@ -452,6 +452,19 @@ test("buildModel: plan grouping, exclusion and ordering", () => {
   assert.equal(plan[4].daysLeft, null);
 });
 
+test("buildModel: an old value is stale and does not count for the domain status", () => {
+  const build = (date) => buildModel({ profile, goals, catalog, plan: null, today: "2026-11-15", observations: [obs(date, "glucose", 9.9)] });
+  const fresh = build("2026-09-01");
+  assert.equal(fresh.markers.glucose.stale, false);
+  // recheck 6 months: stale after 12
+  const old = build("2025-10-01");
+  assert.equal(old.markers.glucose.stale, true);
+  assert.equal(old.markers.glucose.status, fresh.markers.glucose.status, "the marker keeps its own status");
+  const domainOf = (model) => model.domains.find((d) => d.markerIds.includes("glucose"));
+  assert.equal(domainOf(old).counts.nodata, domainOf(fresh).counts.nodata + 1);
+  assert.notEqual(domainOf(fresh).status, "nodata");
+});
+
 test("buildModel: a later plan deadline replaces a recheck date that has passed", () => {
   const due = (target, date = "2020-03-01") => buildModel({
     profile, goals, catalog, today: "2026-11-15",
