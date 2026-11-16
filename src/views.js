@@ -174,6 +174,14 @@ function markerBody(model, ms) {
     body.append(h("div", { class: "m-status" }, chip(ms.status),
       h("span", { class: "muted" }, formatDateRu(ms.latest.date))));
     body.append(rangeBar(ms));
+    // The earlier point, so the history is visible without opening the marker screen.
+    const prev = ms.series.length > 1 ? ms.series[ms.series.length - 2] : null;
+    if (prev) {
+      body.append(h("p", { class: "prev-line" },
+        h("span", { class: "prev-label" }, "Было: "),
+        valueText(prev, def) + ", " + formatDateRu(prev.date),
+        ms.series.length > 2 ? h("span", { class: "muted" }, " · всего точек: " + ms.series.length) : null));
+    }
     const goal = goalText(def);
     if (goal) body.append(h("p", { class: "goal-line" }, goal));
   }

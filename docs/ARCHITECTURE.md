@@ -404,6 +404,9 @@ Routes (hash): `#/` today, `#/domain/<id>` (the today screen with that system
 opened and scrolled into view), `#/marker/<id>`, `#/plan`, `#/curator`, `#/settings`. Bottom
 tab bar: «Сегодня», «План», «Куратор», «Настройки».
 
+An opened marker row with two or more points shows the previous value and its
+date («Было: …»), so history is visible before the marker screen.
+
 In guest mode the same routes live under `#/guest/<id>/<key>/`, plus
 `summary`; see «Guest access». All links are built by one helper that knows the
 current prefix.
