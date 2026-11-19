@@ -65,6 +65,10 @@ def main():
                 page.on("console", on_console)
                 page.on("pageerror", lambda error: problems.append(f"pageerror: {error}"))
 
+                if (SERVE_DIR / DATA_DIR_NAME / "day.json").is_file():
+                    page.goto(base + "#/day")
+                    page.wait_for_selector(".meter")
+                    shot(page, f"day_{width}.png", 2600)
                 page.goto(base + "#/plan")
                 page.wait_for_selector(".plan-item")
                 shot(page, f"plan_{width}.png", 1500)

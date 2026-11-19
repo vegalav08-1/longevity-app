@@ -1,5 +1,5 @@
 // Service worker: offline app shell, network first. No dependencies.
-const VERSION = "v2";
+const VERSION = "v3";
 const CACHE_NAME = `longevity-shell-${VERSION}`;
 
 const SHELL = [
@@ -11,6 +11,8 @@ const SHELL = [
   "src/engine.js",
   "src/data.js",
   "src/views.js",
+  "src/day.js",
+  "src/dayview.js",
   "src/charts.js",
   "src/dom.js",
   "src/route.js",

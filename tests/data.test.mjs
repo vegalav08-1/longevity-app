@@ -51,6 +51,7 @@ function githubRoutes(extra = {}) {
     [`${API}catalog/markers.json`]: reply(200, catalog),
     [`${API}commentary.json`]: reply(404, { message: "Not Found" }),
     [`${API}plan.json`]: reply(404, { message: "Not Found" }),
+    [`${API}day.json`]: reply(404, { message: "Not Found" }),
     [`${API}observations`]: reply(200, [
       { name: "2023.jsonl", type: "file" },
       { name: "2024.jsonl", type: "file" },
@@ -141,6 +142,7 @@ test("github mode sends the right URLs and headers and concatenates observations
     `${API}catalog/goals.json`,
     `${API}catalog/markers.json`,
     `${API}commentary.json`,
+    `${API}day.json`,
     `${API}observations`,
     `${API}observations/2023.jsonl`,
     `${API}observations/2024.jsonl`,
@@ -235,7 +237,7 @@ test("local mode probes year files, ignores 404 and never touches storage", asyn
     bundle.observations.map((o) => o.value),
     [7, 9],
   );
-  assert.equal(calls.length, 5 + 30);
+  assert.equal(calls.length, 6 + 30);
   assert.ok(calls.every((c) => c.url.startsWith(base + "/")));
   assert.ok(calls.every((c) => !c.init?.headers?.Authorization));
   assert.equal(localStorage.getItem(CACHE_KEY), null);
@@ -311,7 +313,7 @@ test("local mode: commentary present is returned, 404 and unusable files give nu
 test("readCache fills commentary null for a cache written before the key existed", () => {
   const old = { profile, goals, catalog, observations: [], fetchedAt: "2024-01-01T00:00:00.000Z" };
   localStorage.setItem(CACHE_KEY, JSON.stringify(old));
-  assert.deepEqual(readCache(), { ...old, commentary: null, plan: null });
+  assert.deepEqual(readCache(), { ...old, commentary: null, plan: null, day: null });
 });
 
 const plan = {
@@ -377,5 +379,24 @@ test("local mode: plan present is returned, 404 and unusable files give null", a
 test("readCache fills plan null for a cache written before the key existed", () => {
   const old = { profile, goals, catalog, observations: [], commentary, fetchedAt: "2024-01-01T00:00:00.000Z" };
   localStorage.setItem(CACHE_KEY, JSON.stringify(old));
-  assert.deepEqual(readCache(), { ...old, plan: null });
+  assert.deepEqual(readCache(), { ...old, plan: null, day: null });
 });
+
+const day = { version: 1, date: "2024-06-02", updated: "12:00", targets: { energy: [2000, 2200] }, meals: [{ title: "Synthetic meal", energy: 500 }] };
+
+test("github mode returns and caches day when present", async () => {
+  stubFetch(githubRoutes({ [`${API}day.json`]: reply(200, day) }));
+  const bundle = await loadBundle({ mode: "github", repo: "owner/repo", token: "secret" });
+  assert.deepEqual(bundle.day, day);
+  assert.deepEqual(readCache().day, day);
+});
+
+test("github mode: 404 or an unusable day.json gives day null and keeps the data", async () => {
+  stubFetch(githubRoutes());
+  assert.equal((await loadBundle({ mode: "github", repo: "owner/repo", token: "secret" })).day, null);
+  stubFetch(githubRoutes({ [`${API}day.json`]: reply(200, "not json {") }));
+  const bundle = await loadBundle({ mode: "github", repo: "owner/repo", token: "secret" });
+  assert.equal(bundle.day, null);
+  assert.ok(bundle.observations.length > 0);
+});
+

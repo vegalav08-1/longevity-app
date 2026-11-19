@@ -135,7 +135,7 @@ export function getSource() {
 
 /**
  * Reads the last bundle stored by a github-mode load. A cache written before
- * `commentary` or `plan` was added is returned with `commentary: null` / `plan: null`.
+ * `commentary`, `plan` or `day` was added is returned with that key set to null.
  * @returns {object | null} Bundle or null
  */
 export function readCache() {
@@ -148,6 +148,7 @@ export function readCache() {
       const filled = { ...value };
       if (!("commentary" in filled)) filled.commentary = null;
       if (!("plan" in filled)) filled.plan = null;
+      if (!("day" in filled)) filled.day = null;
       return filled;
     }
   } catch {
@@ -192,7 +193,7 @@ function parseJson(text, label) {
   }
 }
 
-// commentary.json and plan.json are optional: 404 means "absent"; auth and network failures propagate.
+// commentary.json, plan.json and day.json are optional: 404 means "absent"; auth and network failures propagate.
 function optional(promise) {
   return promise.catch((error) => {
     if (error instanceof DataError && error.missing) return null;
@@ -200,7 +201,7 @@ function optional(promise) {
   });
 }
 
-// Commentary and plan are layers on top of the numbers. A broken file must
+// Commentary, plan and day are layers on top of the numbers. A broken file must
 // not take the numbers down with it, so anything that is not a JSON object counts as "none".
 function parseOptionalObject(text) {
   if (text === null) return null;
@@ -235,13 +236,14 @@ async function loadGithub(source) {
     throw error;
   });
 
-  const [profileText, goalsText, markersText, listingText, commentaryText, planText] = await Promise.all([
+  const [profileText, goalsText, markersText, listingText, commentaryText, planText, dayText] = await Promise.all([
     getFile("profile.json"),
     getFile("catalog/goals.json"),
     getFile("catalog/markers.json"),
     listing,
     optional(getFile("commentary.json")),
     optional(getFile("plan.json")),
+    optional(getFile("day.json")),
   ]);
 
   const profile = parseJson(profileText, "profile.json");
@@ -249,6 +251,7 @@ async function loadGithub(source) {
   const catalog = parseJson(markersText, "catalog/markers.json");
   const commentary = parseOptionalObject(commentaryText);
   const plan = parseOptionalObject(planText);
+  const day = parseOptionalObject(dayText);
 
   let names = [];
   if (listingText !== null) {
@@ -268,7 +271,7 @@ async function loadGithub(source) {
     observations.push(...parseObservations(text, `observations/${names[index]}`));
   });
 
-  const bundle = { profile, goals, catalog, observations, commentary, plan, fetchedAt: new Date().toISOString() };
+  const bundle = { profile, goals, catalog, observations, commentary, plan, day, fetchedAt: new Date().toISOString() };
   writeCache(bundle);
   return bundle;
 }
@@ -292,12 +295,13 @@ async function loadLocal(source) {
     ),
   );
 
-  const [profileText, goalsText, markersText, commentaryText, planText, found] = await Promise.all([
+  const [profileText, goalsText, markersText, commentaryText, planText, dayText, found] = await Promise.all([
     getFile("profile.json"),
     getFile("catalog/goals.json"),
     getFile("catalog/markers.json"),
     optional(getFile("commentary.json")),
     optional(getFile("plan.json")),
+    optional(getFile("day.json")),
     Promise.all(probes),
   ]);
 
@@ -306,6 +310,7 @@ async function loadLocal(source) {
   const catalog = parseJson(markersText, "catalog/markers.json");
   const commentary = parseOptionalObject(commentaryText);
   const plan = parseOptionalObject(planText);
+  const day = parseOptionalObject(dayText);
 
   const observations = [];
   found
@@ -315,16 +320,16 @@ async function loadLocal(source) {
       observations.push(...parseObservations(text, `observations/${year}.jsonl`));
     });
 
-  return { profile, goals, catalog, observations, commentary, plan, fetchedAt: new Date().toISOString() };
+  return { profile, goals, catalog, observations, commentary, plan, day, fetchedAt: new Date().toISOString() };
 }
 
 /**
- * Loads profile, catalog, all observations and the optional commentary.json and plan.json
- * (a 404 or a file that is not a JSON object gives `commentary: null` / `plan: null`;
+ * Loads profile, catalog, all observations and the optional commentary.json, plan.json and day.json
+ * (a 404 or a file that is not a JSON object gives `commentary: null` / `plan: null` / `day: null`;
  * auth and network failures are errors like for the other files). In github mode the
  * result is also written to the cache; local mode never touches settings or cache.
  * @param {{mode: "local", base: string} | {mode: "github", repo: string, token: string}} source
- * @returns {Promise<{profile: object, goals: object, catalog: object, observations: object[], commentary: object|null, plan: object|null, fetchedAt: string}>}
+ * @returns {Promise<{profile: object, goals: object, catalog: object, observations: object[], commentary: object|null, plan: object|null, day: object|null, fetchedAt: string}>}
  * @throws {DataError}
  */
 export async function loadBundle(source) {
@@ -453,6 +458,7 @@ export async function loadGuestBundle({ id, key }, { fetchImpl, baseUrl, today }
     observations: bundle.observations,
     commentary: bundle.commentary && typeof bundle.commentary === "object" ? bundle.commentary : null,
     plan: bundle.plan && typeof bundle.plan === "object" ? bundle.plan : null,
+    day: null, // the day screen is the owner's working surface; a snapshot never carries it
     fetchedAt: new Date().toISOString(),
     guest: {
       label: String(bundle.label ?? ""),

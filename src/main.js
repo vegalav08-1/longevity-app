@@ -4,6 +4,8 @@ import { h, formatDateRu } from "./dom.js";
 import { link, setRoutePrefix } from "./route.js";
 import { statusIcon } from "./charts.js";
 import { todayView, markerView, planView, summaryView, curatorView, settingsView, openDomain, onStateChange } from "./views.js";
+import { dayView } from "./dayview.js";
+import { normaliseDay } from "./day.js";
 
 const $view = document.getElementById("view");
 const $title = document.getElementById("title");
@@ -26,6 +28,7 @@ function applyBundle(bundle) {
   });
   // Interpretation travels next to the model; statuses never depend on it.
   state.model.commentary = bundle.commentary || null;
+  state.model.day = normaliseDay(bundle.day);
   state.fetchedAt = bundle.fetchedAt || null;
 }
 
@@ -59,14 +62,19 @@ function parseRoute() {
   if (parts[0] === "domain" && arg) return { name: "domain", id: arg };
   if (parts[0] === "marker" && arg) return { name: "marker", id: arg };
   if (parts[0] === "plan") return { name: "plan" };
+  if (parts[0] === "day" && !guest) return { name: "day" };
   if (parts[0] === "curator") return { name: "curator" };
   if (parts[0] === "settings") return { name: "settings" };
+  // Opened without any route, the app lands on the day screen when the curator keeps one.
+  // The overview tab links to "#/", so it stays reachable.
+  const bare = !location.hash || location.hash === "#";
+  if (bare && !guest && state.model && state.model.day) return { name: "day" };
   return { name: "today" };
 }
 
 function placeholder() {
   const msg = state.loading ? "Загружаю данные…" : state.error ? state.error.message : "Данные не загружены.";
-  return h("div", { class: "screen", "data-title": "Сегодня" }, h("div", { class: "card pad" }, h("p", { role: "status" }, msg),
+  return h("div", { class: "screen", "data-title": "Здоровье" }, h("div", { class: "card pad" }, h("p", { role: "status" }, msg),
     state.error && state.error.code === "auth" && !state.guestRoute ? h("a", { href: link("settings") }, "Открыть настройки") : null));
 }
 
@@ -90,6 +98,7 @@ function viewFor(route) {
   if (!state.guestRoute && state.source && !state.model) {
     const p = placeholder();
     if (route.name === "plan") p.dataset.title = "План";
+    if (route.name === "day") p.dataset.title = "День";
     return p;
   }
   switch (route.name) {
@@ -97,6 +106,7 @@ function viewFor(route) {
     case "domain": openDomain(route.id); return todayView(state.model);
     case "marker": return markerView(state.model, route.id);
     case "plan": return planView(state.model);
+    case "day": return dayView(state.model, todayStr());
     case "summary": return summaryView(state.model);
     case "curator": return curatorView(state.model);
     default: return todayView(state.model);
@@ -118,7 +128,7 @@ function render(fresh) {
   $view.replaceChildren(...children);
 
   $title.textContent = node.dataset.title || "Долголетие";
-  document.title = $title.textContent === "Сегодня" ? "Долголетие" : $title.textContent + " — Долголетие";
+  document.title = $title.textContent === "Здоровье" ? "Долголетие" : $title.textContent + " — Долголетие";
   if (node.dataset.backHref) {
     $back.hidden = false;
     $back.setAttribute("href", node.dataset.backHref);
@@ -127,13 +137,14 @@ function render(fresh) {
     $back.hidden = true;
   }
   const guestMode = !!state.guestRoute;
-  const active = ["plan", "curator", "settings", "summary"].includes(route.name) ? route.name : "today";
-  const tabPaths = { today: "", plan: "plan", summary: "summary", curator: "curator", settings: "settings" };
+  const active = ["day", "plan", "curator", "settings", "summary"].includes(route.name) ? route.name : "today";
+  const tabPaths = { day: "day", today: "", plan: "plan", summary: "summary", curator: "curator", settings: "settings" };
+  const hasDay = !!(state.model && state.model.day);
   for (const a of $tabs) {
     const tab = a.dataset.tab;
     a.setAttribute("href", link(tabPaths[tab] || ""));
-    if (guestMode) a.hidden = !state.model || tab === "curator" || tab === "settings" || (tab === "summary" && !state.model.summary);
-    else a.hidden = tab === "summary";
+    if (guestMode) a.hidden = !state.model || tab === "day" || tab === "curator" || tab === "settings" || (tab === "summary" && !state.model.summary);
+    else a.hidden = tab === "summary" || (tab === "day" && !hasDay);
     if (tab === active && !a.hidden) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }

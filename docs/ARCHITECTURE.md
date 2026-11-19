@@ -41,6 +41,7 @@ catalog/markers.json          {version, panels: {panelId: title}, markers: [Mark
 observations/YYYY.jsonl       one Observation per line, file chosen by the year of `date`
 commentary.json              optional, see Commentary
 plan.json                    optional, see Plan targets
+day.json                     optional, see Day
 raw/                          source documents, named YYYY-MM-DD_<lab>_<order>.<ext>
 notes/                        curator notes in Markdown (history, intake, logs); the app never reads them
 shares.json                   optional, guest links: {version, app_url, shares: [{id, label, created, expires, key, summary: boolean}]}
@@ -304,6 +305,38 @@ path that starts with a single `/` is accepted. Files are fetched from
 `<base>/profile.json` and so on; `observations/<year>.jsonl` is probed for the
 last 30 years and 404 is ignored. Local mode never touches settings or cache.
 
+### Day
+
+`day.json` is the curator's sheet for the current day. The curator rewrites it
+after every message of the owner; the next morning it starts a new one. The app
+only shows it. Like the commentary, it is a layer: an absent or broken file
+hides the day screen and nothing else.
+
+```
+{
+  version: 1,
+  date: "YYYY-MM-DD",
+  updated?: "HH:MM",                    local time of the last rewrite
+  headline?: string,                    at most 12 words: where the day stands
+  targets: { <nutrient>: [low | null, high | null] },
+  meals?:  [{ time?: "HH:MM", title, text?, energy: Amount, <nutrient>?: Amount }],
+  options?: [{ meal, variants: [{ text, energy?, protein?, fiber? }] }],   what to eat next
+  limits?: [{ title, limit, why?, state: "pending" | "kept" | "broken" }], at most 6
+  todo?:   [{ text, done?: boolean }],                                     today
+  tomorrow?: [string],
+  ahead?:  [{ when, what, prep? }],     visits and tests of the coming weeks, in free words
+  events?: [{ time?, title, text? }],   episodes of the day
+  facts?:  [{ title, text }]            last night's sleep, weight, coffee and the like
+}
+nutrient = energy (kcal) | protein | fat | carbs | fiber | sugar | salt (grams)
+Amount   = number | [low, high]         an estimate keeps its range
+```
+
+A target with only `low` is a floor (fiber, protein), with only `high` a ceiling
+(sugar, salt), with both a range. The app sums the meals itself
+(`src/day.js`: `normaliseDay`, `dayTotals`, `meterState`), so a total never
+disagrees with its parts. A guest snapshot never carries the day sheet.
+
 ## Guest access
 
 The owner can give a doctor or a nutritionist a read-only link. The guest needs
@@ -379,7 +412,7 @@ headings, paragraphs, `-` lists, pipe tables, `**bold**`.
   `cache: "no-store"`, decrypts it with WebCrypto and builds the model exactly
   as for the owner.
 - Writes nothing to `localStorage` and reads neither settings nor cache.
-- Tabs: «Сегодня», «План», «Сводка» (only when `summary` is not null). No
+- Tabs: «Здоровье», «План», «Сводка» (only when `summary` is not null). No
   «Куратор», no «Настройки».
 - A banner on every screen: who the access is for, the date of the data, the
   last day of access, and that it is view-only.
@@ -400,9 +433,21 @@ DataError codes gain "expired".
 
 ## Interface
 
-Routes (hash): `#/` today, `#/domain/<id>` (the today screen with that system
-opened and scrolled into view), `#/marker/<id>`, `#/plan`, `#/curator`, `#/settings`. Bottom
-tab bar: «Сегодня», «План», «Куратор», «Настройки».
+Routes (hash): `#/` the health overview (called "today" in the code), `#/domain/<id>`
+(the overview with that system opened and scrolled into view), `#/marker/<id>`, `#/day`,
+`#/plan`, `#/curator`, `#/settings`. Bottom tab bar: «День» (only when `day.json`
+exists), «Здоровье», «План», «Куратор», «Настройки». Opened without any route, the app
+shows the day screen when there is one; the overview stays at `#/`.
+
+- Day: the lead block (weekday, date, headline, time of the last update; a line
+  saying the sheet is from a past day when its date is not today), then
+  «Питание»: one meter per nutrient. A meter is a track with the target zone and
+  a thinner bar of what was eaten: solid for the certain part, pale for the
+  uncertainty of the estimate, the alarm colour only above a ceiling. Under it:
+  what is left or by how much the target is exceeded, and the target. Then a
+  fold with the meals, «Что съесть дальше», «Ограничения на день» with the
+  state of each limit in words and an icon, «Сделать сегодня», «Завтра»,
+  «Впереди», «События дня», «За день».
 
 A marker whose latest value is older than twice its recheck interval (at least
 6 months; 24 months when it has no interval) is `stale`: it keeps its status and

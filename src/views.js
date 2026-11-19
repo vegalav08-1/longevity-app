@@ -437,7 +437,7 @@ function planItem(model, item, sent) {
 
 export function todayView(model) {
   if (!model) {
-    return screen("Сегодня", null,
+    return screen("Здоровье", null,
       h("div", { class: "card pad" },
         h("p", null, "Данные не подключены. Укажите репозиторий с данными и токен доступа."),
         h("a", { class: "btn btn-primary", href: link("settings") }, "Подключить данные")));
@@ -459,7 +459,7 @@ export function todayView(model) {
   // The plan is already ordered by deadline, then priority.
   const sent = readSent(model);
   const next = model.plan.filter((i) => i.date).slice(0, 3);
-  return screen("Сегодня", null,
+  return screen("Здоровье", null,
     model.mission ? h("p", { class: "mission" }, model.mission) : null,
     lead(model),
     filterBar("Фильтр систем", [
