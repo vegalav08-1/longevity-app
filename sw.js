@@ -1,5 +1,5 @@
 // Service worker: offline app shell, network first. No dependencies.
-const VERSION = "v3";
+const VERSION = "v4";
 const CACHE_NAME = `longevity-shell-${VERSION}`;
 
 const SHELL = [

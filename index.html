@@ -24,12 +24,14 @@
 <main id="view"></main>
 <nav class="tabbar" aria-label="Разделы">
   <div class="tabs">
-    <a href="#/day" data-tab="day" hidden>День</a>
-    <a href="#/" data-tab="today">Здоровье</a>
-    <a href="#/plan" data-tab="plan">План</a>
-    <a href="#/summary" data-tab="summary" hidden>Сводка</a>
-    <a href="#/curator" data-tab="curator">Куратор</a>
-    <a href="#/settings" data-tab="settings">Настройки</a>
+    <div class="dock">
+      <a href="#/day" data-tab="day" hidden><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/><path d="M12 2.5V5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg><span>День</span></a>
+      <a href="#/" data-tab="today"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20.3C6.5 16.4 3.5 13.3 3.5 9.6 3.5 7 5.5 5 8 5c1.6 0 3 .8 4 2.1C13 5.8 14.4 5 16 5c2.5 0 4.5 2 4.5 4.6 0 3.7-3 6.8-8.5 10.7z"/></svg><span>Здоровье</span></a>
+      <a href="#/plan" data-tab="plan"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5.5" width="16" height="14.5" rx="3"/><path d="M8 3.5v4M16 3.5v4M4 10.5h16M8.8 15.2l2.1 2.1 4.3-4.4"/></svg><span>План</span></a>
+      <a href="#/summary" data-tab="summary" hidden><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 3.5h7l4.5 4.5V19a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5zM14 3.5V8h4.5M8.5 12.5h7M8.5 16h5"/></svg><span>Сводка</span></a>
+      <a href="#/curator" data-tab="curator"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5h14a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-7.3L7.5 21v-3.5H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM8 10h8M8 13.5h5"/></svg><span>Куратор</span></a>
+    </div>
+    <a class="gear" href="#/settings" data-tab="settings" aria-label="Настройки" title="Настройки"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></a>
   </div>
 </nav>
 <noscript><p class="noscript">Для работы приложения нужен JavaScript.</p></noscript>

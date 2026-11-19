@@ -435,9 +435,12 @@ DataError codes gain "expired".
 
 Routes (hash): `#/` the health overview (called "today" in the code), `#/domain/<id>`
 (the overview with that system opened and scrolled into view), `#/marker/<id>`, `#/day`,
-`#/plan`, `#/curator`, `#/settings`. Bottom tab bar: «День» (only when `day.json`
-exists), «Здоровье», «План», «Куратор», «Настройки». Opened without any route, the app
-shows the day screen when there is one; the overview stays at `#/`.
+`#/plan`, `#/curator`, `#/settings`. The bottom bar floats above the page: a frosted
+tray with raised buttons «День» (only when `day.json` exists), «Здоровье», «План»,
+«Куратор», each an icon over a label, and a separate round gear button for the
+settings on the right. The current section is the filled button. The icons are
+inline SVG in `index.html`, drawn with `currentColor`. Opened without any route, the
+app shows the day screen when there is one; the overview stays at `#/`.
 
 - Day: the lead block (weekday, date, headline, time of the last update; a line
   saying the sheet is from a past day when its date is not today), then
@@ -510,6 +513,12 @@ interpretation. That distinction is never broken.
 --out #D03B3B   --out-text #A82A2A
 --nodata #B4BAC8
 ```
+
+Depth: cards carry `--shadow-card`, floating controls `--shadow-float`; buttons,
+filters and the dock are raised (a light-to-grey vertical gradient with an inner
+highlight), the pressed or current one is the accent gradient. The page has one
+soft glow behind its title; data surfaces stay white and the interpretation
+blocks stay pale blue.
 
 Headings: `ui-serif, "New York", Georgia, serif`, weight 600. Body:
 `-apple-system, system-ui, "Segoe UI", Roboto, sans-serif`. Numbers use
