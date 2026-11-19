@@ -1,5 +1,5 @@
 // Service worker: offline app shell, network first. No dependencies.
-const VERSION = "v4";
+const VERSION = "v5";
 const CACHE_NAME = `longevity-shell-${VERSION}`;
 
 const SHELL = [
@@ -28,7 +28,7 @@ self.addEventListener("install", (event) => {
       const cache = await caches.open(CACHE_NAME);
       await Promise.all(
         SHELL.map((url) =>
-          cache.add(url).catch(() => {
+          cache.add(new Request(url, { cache: "reload" })).catch(() => {
             // a missing file must not fail the install
           }),
         ),
@@ -60,7 +60,9 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     (async () => {
       try {
-        const response = await fetch(request);
+        // "no-cache" revalidates with the server every time, so a new release shows up
+        // at once instead of after the ten minutes the host lets a browser keep a file.
+        const response = await fetch(request, { cache: "no-cache" });
         if (response && response.ok) {
           const copy = response.clone();
           caches
