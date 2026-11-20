@@ -42,6 +42,8 @@ observations/YYYY.jsonl       one Observation per line, file chosen by the year 
 commentary.json              optional, see Commentary
 plan.json                    optional, see Plan targets
 day.json                     optional, see Day
+nutrition/YYYY.jsonl         optional, see Nutrition ledger
+nutrition/targets.jsonl      optional, see Nutrition ledger
 raw/                          source documents, named YYYY-MM-DD_<lab>_<order>.<ext>
 notes/                        curator notes in Markdown (history, intake, logs); the app never reads them
 shares.json                   optional, guest links: {version, app_url, shares: [{id, label, created, expires, key, summary: boolean}]}
@@ -336,6 +338,35 @@ A target with only `low` is a floor (fiber, protein), with only `high` a ceiling
 (sugar, salt), with both a range. The app sums the meals itself
 (`src/day.js`: `normaliseDay`, `dayTotals`, `meterState`), so a total never
 disagrees with its parts. A guest snapshot never carries the day sheet.
+
+### Nutrition ledger
+
+The day sheet holds one day and is overwritten the next morning. What was eaten
+is kept for good in `nutrition/YYYY.jsonl`, one meal per line, file chosen by the
+year of `date`. The curator appends a row in the same commit as the day sheet;
+rows are corrected, never deleted.
+
+```
+{
+  date: "YYYY-MM-DD",                  the day the meal is counted in
+  at?: "YYYY-MM-DDTHH:MM",             when it was eaten; omitted when the time is unknown
+  title, text,                         text is the composition with grams
+  energy: Amount, <nutrient>?: Amount, same nutrients and Amount as in Day
+  basis: "label" | "estimate" | "mixed"
+}
+```
+
+A meal eaten after midnight, before the day has ended with sleep, is counted in
+the previous day: `date` is that day, `at` carries the real time, so `at` falls
+on `date` or on the next calendar day.
+
+`nutrition/targets.jsonl` is the history of daily targets, one line per change:
+`{from: "YYYY-MM-DD", <nutrient>?: [low | null, high | null], note?}`. The targets
+of a day are the last row whose `from` is not later than that day.
+
+The validator checks that the meals of `day.json` equal the ledger rows of its
+date and that its targets equal the last targets row. The app does not read the
+ledger yet; a guest snapshot never carries it.
 
 ## Guest access
 
